@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { loadConfig } from '../src/config.js';
-import { publish, share } from '../src/publish.js';
+import { buildOnly, publish, share } from '../src/publish.js';
 
 const CONSOLE_DOMAIN = 'console.example.com';
 
@@ -205,9 +205,12 @@ test('publish acquires a lock, uploads each page to the deviceId/gen-prefixed R2
   }) as typeof fetch;
 
   const s3Calls: Array<{ Bucket: string; Key: string; ContentType: string; Body: Buffer }> = [];
+  let localLockObservedDuringUpload = false;
   const originalSend = S3Client.prototype.send;
   (S3Client.prototype as any).send = async function send(command: any) {
     s3Calls.push({ ...command.input });
+    assert.throws(() => buildOnly(config), /Another publish is in progress/);
+    localLockObservedDuringUpload = true;
     return {};
   };
 
@@ -293,4 +296,14 @@ test('publish refuses to run without R2 credentials in the environment', async (
   } finally {
     delete process.env.HTML_SHARE_CREDENTIALS;
   }
+});
+
+test('buildOnly refuses a concurrent local publish lock before touching the build directory', () => {
+  const { config } = fixture([
+    { slug: 'demo', title: 'デモ', objectKey: 'pages/demo/index.html' },
+  ]);
+  const lock = path.join(config.baseDir, '.html-share', 'publish.lock');
+  mkdirSync(lock, { recursive: true });
+  writeFileSync(path.join(lock, 'pid'), `${process.pid}\n`);
+  assert.throws(() => buildOnly(config), /Another publish is in progress/);
 });

@@ -1,6 +1,6 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { BuildManifest } from './bundle.js';
 import { buildSite } from './bundle.js';
@@ -35,59 +35,115 @@ function r2Client(config: HtmlShareConfig): S3Client {
 // 超過するリスクの方を避ける。
 const RENEW_EVERY_N_UPLOADS = 50;
 
-export function buildOnly(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
+function buildUnlocked(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
   const buildRoot = path.resolve(config.baseDir, '.html-share', 'build');
   const manifest = buildSite(config, buildRoot);
   return { buildRoot, manifest };
 }
 
-export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: string; pages: number }> {
-  const { buildRoot, manifest } = buildOnly(config);
-  const deviceId = pairedDeviceId(config);
-  // R2認証情報の検証はネットワークを一切使わない（env var の存在確認のみ）ため、
-  // publish lockという副作用のある操作より前に済ませ、失敗時にlockを無駄に
-  // 取得しない（TTL 30分の間、他プロセスの再publishを不必要にブロックしない）。
-  const client = r2Client(config);
-  const lock = await acquirePublishLock(config);
-
-  const commitPages: CommitPageInput[] = [];
-  let uploaded = 0;
-  for (const page of manifest.pages) {
-    // page.objectKeyはローカルの構築物内(content/配下)の相対パスであり、R2上の
-    // 実際のキーではない。R2キーはdeviceId/genを注入してこの場で導出する（§4.1）。
-    const body = readFileSync(path.join(buildRoot, 'content', page.objectKey));
-    const objectKey = `pages/${deviceId}/${lock.gen}/${page.slug}/index.html`;
-    // visibility='public'→CONTENT（誰でも署名URLで閲覧可）、'internal'→INTERNAL
-    // （Cloudflare Access限定）。同じR2アカウント資格情報が両バケットへ書き込める
-    // ことを確認済み（バケット単位スコープではなくアカウント単位スコープのトークン）
-    const bucket = page.visibility === 'public' ? config.cloudflare.contentBucket : config.cloudflare.internalBucket;
-    await client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: objectKey,
-      Body: body,
-      ContentType: 'text/html; charset=utf-8',
-      CacheControl: 'no-store, max-age=0',
-    }));
-    uploaded += 1;
-    if (uploaded % RENEW_EVERY_N_UPLOADS === 0) await renewPublishLock(config, lock.token);
-    commitPages.push({
-      slug: page.slug,
-      title: page.title,
-      source: page.source,
-      repository: page.repository,
-      stream: page.stream,
-      streamLabel: page.streamLabel,
-      date: page.date,
-      updatedAt: page.updatedAt,
-      bytes: body.byteLength,
-      md5: createHash('md5').update(body).digest('hex'),
-      visibility: page.visibility,
-    });
+export function buildOnly(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
+  const release = acquireLocalPublishLock(config);
+  try {
+    return buildUnlocked(config);
+  } finally {
+    release();
   }
-
-  const result = await commitPublish(config, lock.token, commitPages);
-  return { consoleUrl: `${consoleUrl(config)}/app/`, pages: result.pages };
 }
+
+/**
+ * 同じbaseDirのbuild/upload/commitを1プロセスに限定する。
+ * buildSiteはbuildRootを削除して作り直すため、upload中に別のbuildが始まると、
+ * 生成物の欠落や読み取り競合が起こる。ロックはpublish完了まで保持する。
+ */
+function acquireLocalPublishLock(config: HtmlShareConfig): () => void {
+  const lock = path.resolve(config.baseDir, '.html-share', 'publish.lock');
+  mkdirSync(path.dirname(lock), { recursive: true });
+  try {
+    mkdirSync(lock);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    let owner = 0;
+    try {
+      owner = Number.parseInt(readFileSync(path.join(lock, 'pid'), 'utf8').trim(), 10);
+    } catch {
+      throw new Error(`Another publish is in progress. Wait for it to finish, or remove ${lock} if no process owns it.`);
+    }
+    if (!Number.isInteger(owner) || owner <= 0 || isAlive(owner)) {
+      throw new Error(`Another publish is in progress. Wait for it to finish, or remove ${lock} if no process owns it.`);
+    }
+    rmSync(lock, { recursive: true, force: true });
+    try {
+      mkdirSync(lock);
+    } catch {
+      throw new Error(`Another publish is in progress. Wait for it to finish, or remove ${lock} if no process owns it.`);
+    }
+  }
+  writeFileSync(path.join(lock, 'pid'), `${process.pid}\n`);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    rmSync(lock, { recursive: true, force: true });
+  };
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: string; pages: number }> {
+  const releaseLocalLock = acquireLocalPublishLock(config);
+  try {
+    const { buildRoot, manifest } = buildUnlocked(config);
+    const deviceId = pairedDeviceId(config);
+    // R2認証情報の検証はネットワークを一切使わないため、remote lockより先に行う。
+    const client = r2Client(config);
+    const lock = await acquirePublishLock(config);
+
+    const commitPages: CommitPageInput[] = [];
+    let uploaded = 0;
+    for (const page of manifest.pages) {
+      // page.objectKeyはローカルの構築物内(content/配下)の相対パスであり、R2上の
+      // 実際のキーではない。R2キーはdeviceId/genを注入してこの場で導出する（§4.1）。
+      const body = readFileSync(path.join(buildRoot, 'content', page.objectKey));
+      const objectKey = `pages/${deviceId}/${lock.gen}/${page.slug}/index.html`;
+      const bucket = page.visibility === 'public' ? config.cloudflare.contentBucket : config.cloudflare.internalBucket;
+      await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: objectKey,
+        Body: body,
+        ContentType: 'text/html; charset=utf-8',
+        CacheControl: 'no-store, max-age=0',
+      }));
+      uploaded += 1;
+      if (uploaded % RENEW_EVERY_N_UPLOADS === 0) await renewPublishLock(config, lock.token);
+      commitPages.push({
+        slug: page.slug,
+        title: page.title,
+        source: page.source,
+        repository: page.repository,
+        stream: page.stream,
+        streamLabel: page.streamLabel,
+        date: page.date,
+        updatedAt: page.updatedAt,
+        bytes: body.byteLength,
+        md5: createHash('md5').update(body).digest('hex'),
+        visibility: page.visibility,
+      });
+    }
+
+    const result = await commitPublish(config, lock.token, commitPages);
+    return { consoleUrl: `${consoleUrl(config)}/app/`, pages: result.pages };
+  } finally {
+    releaseLocalLock();
+  }
+}
+
 
 export async function share(config: HtmlShareConfig, query: string, days: number): Promise<string> {
   if (days > config.content.maximumShareDays) {
