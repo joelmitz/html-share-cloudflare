@@ -1,0 +1,94 @@
+name: Sync fork with upstream
+
+# joelmitz/html-share-cloudflare の main を minorun365/html-share（正本）へ追従させる。
+# joelmitz/agmsg の同名ワークフローと同じ設計（2026-08-30 移植）。
+#
+# ★実装は git ではなく GitHub の fork-sync API（POST /repos/{repo}/merge-upstream）
+# を呼ぶ。agmsg fork で実測した理由は次の2つ。
+#
+# 失敗1: `git merge --ff-only upstream/main`
+#   このワークフローを追加した commit 自身が main を diverge させるため、
+#   ff-only は初回から一度も成功しない。
+#
+# 失敗2: `git merge` + `git push`（ff-only をやめた版）
+#   merge は通ってもpushが拒否されうる:
+#     ! [remote rejected] main -> main (refusing to allow a GitHub App to
+#       create or update workflow `.github/workflows/*.yml`
+#       without `workflows` permission)
+#   upstream の差分に workflow ファイルが含まれると、既定の GITHUB_TOKEN では
+#   push できない。`permissions:` ブロックに `workflows` というキーは存在しない
+#   （agmsg fork で実測・YAML解析エラーを確認済み）。
+#
+# fork-sync API も同じ制約を持つため、merge-upstream の呼び出しだけは
+# workflow スコープ付きの SYNC_UPSTREAM_TOKEN（既存 gh 認証トークンを
+# `gh auth token | gh secret set` で値を表示せず保存したもの）を使う。
+#
+# fork-sync API は fast-forward できなければ merge commit を作る。競合して
+# 同期できない場合は merge_type=none となり、このワークフローは失敗する
+# （強制上書きは一切しない）。このリポジトリは Cloudflare 向けの独自差分
+# （fork-local commits）を持つため、fast-forward ではなく merge commit に
+# なるのが通常想定であり、それ自体は失敗ではない。実際の衝突（merge_type=none）
+# のときだけ失敗として扱う。
+
+on:
+  schedule:
+    - cron: '23 3 * * *'  # 毎日 03:23 UTC（12:23 JST）。agmsg側(03:17)と秒をずらす
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # merge_type は "none" が2通りの意味を持つ（agmsg fork で実測 2026-08-22）:
+      #   - 競合等で同期できなかった
+      #   - 既に最新（message: "This branch is not behind the upstream ...")
+      # 戻り値で成否を判定すると後者を失敗と誤判定するため、ここでは同期を
+      # 試みるだけにして、成否は次の step で **実際の同期状態**を見て決める。
+      - name: Sync main from upstream
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_TOKEN }}
+        run: |
+          set -uo pipefail
+          out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/merge-upstream" \
+                   -f branch=main 2>&1 || true)"
+          echo "$out"
+
+      # ★成否の正本。upstream に対して取りこぼしが 0 なら同期できている。
+      # compare/{base}...{head} の ahead_by は head(=upstream) が base(=main) より
+      # 何コミット先行しているか、すなわち **こちらが取りこぼしている数**。
+      - name: Verify main is in sync with upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cmp="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...minorun365:html-share:main")"
+          missing="$(printf '%s' "$cmp" | jq -r '.ahead_by')"
+          local_only="$(printf '%s' "$cmp" | jq -r '.behind_by')"
+          echo "missing_from_upstream=${missing} fork_local_commits=${local_only}"
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::main is still ${missing} commit(s) behind upstream after sync"
+            exit 1
+          fi
+
+      # ★メール通知に依存しない検知経路（agmsg fork の教訓を移植）。
+      # 同題の open issue があればコメント追記に留め、毎日 issue が増えないようにする。
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          title="Sync fork with upstream failed"
+          body="The scheduled fork sync failed. Run: ${run_url}"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title ${title}" --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
