@@ -60,6 +60,8 @@ export interface BuiltPage {
 
 export interface BuildManifest {
   generatedAt: string;
+  internalSharing: boolean;
+  maximumShareDays: number;
   pages: BuiltPage[];
 }
 
@@ -115,14 +117,16 @@ export function bundleHtml(sourceFile: string, roots: string[], maxAssetBytes: n
     if (!inside(resolved, roots)) throw new Error(`Local asset escapes content.roots: ${value}`);
     return `${attribute}=${quote}${dataUrl(resolved, maxAssetBytes)}${quote}`;
   });
-  return injectMobileTables(addMeta(html));
+  return injectMobileHelpers(addMeta(html));
 }
 
-function injectMobileTables(html: string): string {
+function injectMobileHelpers(html: string): string {
   // 閲覧面は script-src が 'unsafe-inline' data: だけなので、相対パスのJSは読めない。
-  // 表の畳み込みはAPIを呼ばない（connect-src 'none' のまま）ので、中身をインラインで埋め込む。
-  const source = readFileSync(path.join(packageRoot(), 'web', 'mobile-tables.js'), 'utf8').trim();
-  const tag = `<script>${source}</script>`;
+  // 表とカレンダーの畳み込みはAPIを呼ばない（connect-src 'none' のまま）ので、
+  // 中身をインラインで埋め込む。
+  const tag = ['mobile-tables.js', 'mobile-calendar.js', 'pull-to-refresh.js']
+    .map((file) => `<script>${readFileSync(path.join(packageRoot(), 'web', file), 'utf8').trim()}</script>`)
+    .join('\n');
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${tag}\n</body>`);
   return `${html}\n${tag}\n`;
 }
@@ -170,7 +174,12 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
       objectKey: `pages/${slug}/index.html`,
     };
   });
-  const manifest = { generatedAt: new Date().toISOString(), pages };
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    internalSharing: config.content.allowedInternalCidrs.length > 0,
+    maximumShareDays: config.content.maximumShareDays,
+    pages,
+  };
   writeFileSync(path.join(buildRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
 }

@@ -18,6 +18,7 @@
 <meta name="theme-color" content="#0a4695">
 <!-- 一覧の見た目と描画の正本。スマホの個別ページ側も同じものを読む -->
 <script src="/page-list.js"></script>
+<script src="/pull-to-refresh.js" defer></script>
 <script>MyBriefsList.injectIntoHead();</script>
 <style>
 :root {
@@ -193,7 +194,10 @@ body.searching .search {
 #q {
   flex: 1; min-width: 0; height: 100%; padding: 0;
   border: 0; background: transparent; color: #fff;
-  font: inherit; font-size: .82rem;
+  /* ⚠️ 16px を下回らせない。iOS Safari は 16px 未満の入力欄にフォーカスすると
+     ページごと拡大し、横幅が画面からはみ出したまま戻らない（ピンチ操作が要る）。
+     バーの中では大きく見えるが、小ささは幅と padding で作る */
+  font: inherit; font-size: 16px;
   opacity: 0; transition: opacity .16s ease;
 }
 body.searching #q { opacity: 1; }
@@ -238,11 +242,6 @@ body.searching.has-query #search-clear { display: flex; }
 }
 .th { display: flex; align-items: center; gap: .55rem; padding: .7rem 1.05rem .55rem; }
 .tname { font-size: .9rem; font-weight: 700; letter-spacing: .01em; color: var(--blue-deep); }
-.tunread {
-  padding: .1rem .45rem; border: 1px solid #f0dca5; border-radius: 999px;
-  background: var(--gold-soft); color: var(--gold-deep);
-  font-size: .67rem; font-weight: 700; letter-spacing: .02em;
-}
 .tcount { font-size: .72rem; color: var(--mut); }
 .tlast {
   margin-left: auto; font-size: .72rem; color: var(--mut);
@@ -352,15 +351,30 @@ body.page-open #page-actions { display: block; }
 #home-btn:hover, #page-more:hover { background: var(--panel); color: var(--ink); }
 #home-btn svg { width: 1.2rem; height: 1.2rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #page-more svg { width: 1.15rem; height: 1.15rem; fill: currentColor; }
+#page-popover-dismiss {
+  position: fixed; inset: 0; z-index: 29;
+  background: transparent;
+}
 #page-menu,
-#page-share-panel {
+#page-share-panel,
+#page-share-toast {
   position: absolute; top: calc(100% + .45rem); right: 0;
   border: 1px solid rgba(28, 35, 51, .10); border-radius: 1rem;
   background: rgba(255, 255, 255, .92); box-shadow: var(--shadow);
   backdrop-filter: blur(26px) saturate(180%); -webkit-backdrop-filter: blur(26px) saturate(180%);
 }
-#page-menu[hidden], #page-share-panel[hidden] { display: none; }
+#page-menu[hidden], #page-share-panel[hidden], #page-share-toast[hidden] { display: none; }
 #page-menu { width: 15rem; padding: .38rem; }
+#page-share-toast {
+  width: min(18rem, calc(100vw - 1.1rem));
+  padding: .7rem .85rem;
+  color: var(--ink); font-size: .82rem; line-height: 1.4;
+}
+#page-share-toast strong { display: block; font-weight: 650; }
+#page-share-toast .toast-meta {
+  display: block; margin-top: .15rem;
+  color: var(--mut); font-size: .72rem; font-weight: 400;
+}
 .page-action {
   width: 100%; min-height: 2.75rem; padding: .55rem .7rem;
   display: flex; align-items: center; gap: .7rem;
@@ -383,7 +397,9 @@ body.page-open #page-actions { display: block; }
 #page-share-issue {
   min-width: 0; min-height: 2.4rem; padding: .4rem .55rem;
   border: 1px solid var(--line); border-radius: .6rem; background: #f6f7f9; color: var(--ink);
-  font: inherit;
+  /* ⚠️ font: inherit だけだと上の label の .68rem を継承して 10.9px になり、
+     iOS Safari が拡大する。ラベルは小さいまま、入力欄だけ 16px で止める */
+  font: inherit; font-size: 16px;
 }
 #page-share-issue {
   grid-column: 1 / -1; border-color: var(--blue); background: var(--blue); color: #fff;
@@ -488,7 +504,7 @@ body.page-controls-hidden #page-actions {
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  #home-btn, #page-more, #page-menu, #page-share-panel {
+  #home-btn, #page-more, #page-menu, #page-share-panel, #page-share-toast {
     background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none;
   }
 }
@@ -541,11 +557,12 @@ body.page-controls-hidden #page-actions {
   </main>
 </div>
 
+<div id="page-popover-dismiss" hidden></div>
 <button id="home-btn" type="button" aria-label="トップへ戻る" title="トップへ戻る">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.5l8 6.7M6.4 9.6V19h11.2V9.6"/></svg>
 </button>
 <div id="page-actions">
-  <button id="page-more" type="button" aria-label="ページ操作を開く" aria-expanded="false">
+  <button id="page-more" type="button" aria-label="ページ操作を開く" aria-haspopup="menu" aria-expanded="false" aria-controls="page-menu">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
   </button>
   <div id="page-menu" role="menu" aria-label="ページ操作" hidden>
@@ -570,6 +587,10 @@ body.page-controls-hidden #page-actions {
     <label>有効日数<select id="page-share-days"><option>1</option><option>3</option><option selected>7</option><option>14</option><option>30</option><option>90</option></select></label>
     <button id="page-share-issue" type="button">発行してコピー</button>
   </div>
+  <div id="page-share-toast" role="status" hidden>
+    <strong>コピーしました</strong>
+    <span class="toast-meta"></span>
+  </div>
 </div>
 
 <script>
@@ -579,7 +600,9 @@ body.page-controls-hidden #page-actions {
   const searchBox = $('search'), searchToggle = $('search-toggle'), searchClear = $('search-clear');
   const refresh = $('refresh'), pageRefresh = $('page-refresh');
   const pageMore = $('page-more'), pageMenu = $('page-menu'), pageSharePanel = $('page-share-panel');
+  const pageShareToast = $('page-share-toast'), pagePopoverDismiss = $('page-popover-dismiss');
   const pageStar = $('page-star'), pageUnread = $('page-unread'), pageShare = $('page-share'), pageDelete = $('page-delete'), pageShareIssue = $('page-share-issue');
+  let shareToastTimer = 0;
   const trashToggle = $('trash-toggle'), trashLabel = $('trash-label');
   const STAR_KEY = 'mb_starred_pages';
   const HIDDEN_KEY = 'mb_hidden_pages';
@@ -595,7 +618,7 @@ body.page-controls-hidden #page-actions {
   let filterText = '';
   let preferenceSaveTimer = null;
   // テーマ内で最初に見せる件数と、「他N件を表示」で開いたテーマのキー
-  const STREAM_PREVIEW = 3;
+  const STREAM_PREVIEW = 4;
   const expandedStreams = new Set();
 
   try {
@@ -724,6 +747,7 @@ body.page-controls-hidden #page-actions {
     );
   }
 
+  // 既読の記録・マージ・書き戻し判定はすべて page-list.js が正本。ここは呼ぶだけにする
   const seedReadMarks = () => L.seedReadMarks(allPages, readMarks);
   const hasUnsyncedReadMarks = (remoteMarks) => L.hasUnsyncedReadMarks(readMarks, remoteMarks);
 
@@ -825,8 +849,8 @@ body.page-controls-hidden #page-actions {
     if (isStarred(page)) starred.delete(page.source);
     else starred.add(page.source);
     queuePreferenceSave();
+    if (current?.source === page.source) syncPageMenu();
     renderHome();
-    syncPageMenu();
   }
 
   // ☆ボタンは page-list.js が正本。トップの行もスマホのドロワーも同じものを使う
@@ -938,13 +962,6 @@ body.page-controls-hidden #page-actions {
     name.textContent = stream.label;
     head.append(name);
 
-    const unread = stream.pages.filter(isNew).length;
-    if (unread > 0) {
-      const badge = document.createElement('span');
-      badge.className = 'tunread';
-      badge.textContent = `未読 ${unread}`;
-      head.append(badge);
-    }
     const count = document.createElement('span');
     count.className = 'tcount';
     count.textContent = `${stream.pages.length}件`;
@@ -1073,22 +1090,54 @@ body.page-controls-hidden #page-actions {
     if (meta) brandMeta.textContent = `${pages.length}ページ ／ ${fmtDateTime(meta.generatedAt)} 更新`;
   }
 
+  function loadFrame(url) {
+    const view = frame.contentWindow;
+    if (!view) {
+      frame.src = url;
+      return;
+    }
+    try {
+      view.location.replace(url);
+    } catch {
+      frame.src = url;
+    }
+  }
+
+  function configureShareOptions(manifest) {
+    const scope = $('page-share-scope');
+    if (!manifest.internalSharing) {
+      scope.querySelector('option[value="i"]')?.remove();
+      scope.value = 'p';
+    }
+
+    const maximumDays = Number(manifest.maximumShareDays);
+    const days = $('page-share-days');
+    if (Number.isInteger(maximumDays) && maximumDays > 0) {
+      for (const option of [...days.options]) {
+        if (Number(option.value) > maximumDays) option.remove();
+      }
+      const available = [...days.options].map((option) => Number(option.value));
+      days.value = String(available.includes(7) ? 7 : available.at(-1));
+    }
+  }
+
   function select(slug) {
     current = pages.find((p) => p.slug === slug) ?? null;
     document.body.classList.toggle('page-open', Boolean(current));
     document.body.classList.remove('page-controls-hidden');
     closePagePopovers();
+    syncPageMenu();
 
     if (!current) {
       frame.hidden = true;
-      frame.removeAttribute('src');
+      loadFrame('about:blank');
       renderHome();
       home.classList.add('on');
       document.title = 'HTML共有くん';
     } else {
       home.classList.remove('on');
       frame.hidden = false;
-      frame.src = current.href;
+      loadFrame(current.href);
       document.title = `${current.title}｜HTML共有くん`;
       // ブックマークやURL直打ちで開いた場合もここを通るので、未読解除はまとめてここで行う
       markRead(current);
@@ -1110,14 +1159,17 @@ body.page-controls-hidden #page-actions {
   }
 
   function setPageControlsHidden(hidden) {
-    if (!pageMenu.hidden || !pageSharePanel.hidden) hidden = false;
+    if (!pageMenu.hidden || !pageSharePanel.hidden || !pageShareToast.hidden) hidden = false;
     document.body.classList.toggle('page-controls-hidden', hidden);
   }
 
   function closePagePopovers() {
     pageMenu.hidden = true;
     pageSharePanel.hidden = true;
+    pageShareToast.hidden = true;
+    pagePopoverDismiss.hidden = true;
     pageMore.setAttribute('aria-expanded', 'false');
+    clearTimeout(shareToastTimer);
   }
 
   function syncPageMenu() {
@@ -1125,6 +1177,7 @@ body.page-controls-hidden #page-actions {
     pageStar.disabled = !current;
     pageStar.classList.toggle('starred', on);
     pageStar.querySelector('span').textContent = on ? 'スターを外す' : 'スターを付ける';
+    // 開いた時点で既読になるので、押せるのは「いま開いているページがある」ときだけ
     pageUnread.disabled = !current;
   }
 
@@ -1206,11 +1259,13 @@ body.page-controls-hidden #page-actions {
   refresh.addEventListener('click', refreshApp);
   pageRefresh.addEventListener('click', refreshApp);
   pageMore.addEventListener('click', () => {
-    const willOpen = pageMenu.hidden;
+    const willOpen = pageMenu.hidden && pageSharePanel.hidden;
     closePagePopovers();
+    if (!willOpen) return;
     syncPageMenu();
-    pageMenu.hidden = !willOpen;
-    pageMore.setAttribute('aria-expanded', String(willOpen));
+    pageMenu.hidden = false;
+    pagePopoverDismiss.hidden = false;
+    pageMore.setAttribute('aria-expanded', 'true');
     setPageControlsHidden(false);
   });
   pageStar.addEventListener('click', () => {
@@ -1222,11 +1277,15 @@ body.page-controls-hidden #page-actions {
     const page = current;
     closePagePopovers();
     if (!markUnread(page)) return;
+    // ここに留まると、再読み込みやページを開き直した拍子にまた既読へ倒れる。
+    // 一覧へ戻して、黄色い「新着」に戻ったことをその場で見せる
     location.hash = '#/';
   });
   pageShare.addEventListener('click', () => {
     pageMenu.hidden = true;
     pageSharePanel.hidden = false;
+    pageShareToast.hidden = true;
+    pagePopoverDismiss.hidden = false;
     pageMore.setAttribute('aria-expanded', 'true');
   });
   pageDelete.addEventListener('click', () => {
@@ -1254,17 +1313,31 @@ body.page-controls-hidden #page-actions {
       const expires = new Date(expiresAt * 1000).toLocaleString('ja-JP', {
         timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
       });
-      pageShareIssue.textContent = '✓ コピーしました';
-      pageShareIssue.title = `${expires}まで有効`;
+      pageSharePanel.hidden = true;
+      pageMore.setAttribute('aria-expanded', 'false');
+      pageShareToast.querySelector('strong').textContent = 'コピーしました';
+      pageShareToast.querySelector('.toast-meta').textContent = `${expires}まで有効`;
+      pageShareToast.hidden = false;
+      pagePopoverDismiss.hidden = false;
+      clearTimeout(shareToastTimer);
+      shareToastTimer = setTimeout(closePagePopovers, 2500);
     } catch (error) {
       console.error(error);
-      pageShareIssue.textContent = generatedUrl ? 'URLを表示しました' : '発行できませんでした';
-      if (generatedUrl) prompt('このURLをコピーしてください', generatedUrl);
+      if (generatedUrl) {
+        prompt('このURLをコピーしてください', generatedUrl);
+      } else {
+        pageSharePanel.hidden = true;
+        pageMore.setAttribute('aria-expanded', 'false');
+        pageShareToast.querySelector('strong').textContent = '発行できませんでした';
+        pageShareToast.querySelector('.toast-meta').textContent = error instanceof Error ? error.message : String(error);
+        pageShareToast.hidden = false;
+        pagePopoverDismiss.hidden = false;
+        clearTimeout(shareToastTimer);
+        shareToastTimer = setTimeout(closePagePopovers, 5000);
+      }
     } finally {
-      setTimeout(() => {
-        pageShareIssue.disabled = false;
-        pageShareIssue.textContent = '発行してコピー';
-      }, 2200);
+      pageShareIssue.disabled = false;
+      pageShareIssue.textContent = '発行してコピー';
     }
   });
   trashToggle.addEventListener('click', () => {
@@ -1273,8 +1346,15 @@ body.page-controls-hidden #page-actions {
     renderHome();
   });
   frame.addEventListener('load', watchFrameScroll);
+  pagePopoverDismiss.addEventListener('pointerdown', closePagePopovers);
   document.addEventListener('pointerdown', (event) => {
-    if ($('page-actions').contains(event.target)) return;
+    if ($('page-actions').contains(event.target) || event.target === pagePopoverDismiss) return;
+    closePagePopovers();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (pageMenu.hidden && pageSharePanel.hidden && pageShareToast.hidden) return;
+    event.preventDefault();
     closePagePopovers();
   });
 
@@ -1290,6 +1370,7 @@ body.page-controls-hidden #page-actions {
     .then((r) => r.json())
     .then(async (data) => {
       meta = data;
+      configureShareOptions(data);
       allPages = data.pages ?? [];
       await loadPreferences();
       select(location.hash.replace(/^#\//, ''));

@@ -4,7 +4,8 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BuildManifest, BuiltPage } from './bundle.js';
@@ -74,27 +75,118 @@ function r2Client(config: HtmlShareConfig): S3Client {
   });
 }
 
-async function emptyBucket(client: S3Client, bucket: string): Promise<void> {
+/** バケットにいま入っているオブジェクトを Key → ETag で集める */
+async function remoteObjects(client: S3Client, bucket: string): Promise<Map<string, string>> {
+  const objects = new Map<string, string>();
   let continuationToken: string | undefined;
   do {
     const listed = await client.send(new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: continuationToken }));
-    const objects = (listed.Contents ?? []).flatMap((item) => item.Key ? [{ Key: item.Key }] : []);
-    if (objects.length) await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects } }));
+    for (const item of listed.Contents ?? []) {
+      if (item.Key) objects.set(item.Key, (item.ETag ?? '').replace(/"/g, ''));
+    }
     continuationToken = listed.NextContinuationToken;
   } while (continuationToken);
+  return objects;
 }
 
-async function uploadTree(client: S3Client, bucket: string, root: string): Promise<void> {
-  await emptyBucket(client, bucket);
+async function deleteKeys(client: S3Client, bucket: string, keys: string[]): Promise<void> {
+  for (let index = 0; index < keys.length; index += 1000) {
+    const batch = keys.slice(index, index + 1000).map((Key) => ({ Key }));
+    await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch } }));
+  }
+}
+
+/**
+ * ローカルの生成物とバケットの中身を突き合わせ、変わったものだけ送る。
+ *
+ *   毎回まるごと消して上げ直すと、1ページ直しただけでもサイト全体が
+ *   上がり直す。ページ数が増えるほど publish の待ち時間そのものになるので、
+ *   中身のハッシュで比べて差分だけを送り、消えたものだけを消す。
+ *   バケットは SSE-S3 なので、単一パートで上げた分の ETag は中身の MD5 と一致する。
+ */
+async function syncTree(client: S3Client, bucket: string, root: string): Promise<void> {
+  const remote = await remoteObjects(client, bucket);
+  const kept = new Set<string>();
   for (const relative of files(root)) {
     const file = path.join(root, relative);
+    const key = relative.split(path.sep).join('/');
+    kept.add(key);
+    const body = readFileSync(file);
+    if (remote.get(key) === createHash('md5').update(body).digest('hex')) continue;
     await client.send(new PutObjectCommand({
       Bucket: bucket,
-      Key: relative.split(path.sep).join('/'),
-      Body: readFileSync(file),
+      Key: key,
+      Body: body,
       ContentType: TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
       CacheControl: 'no-store, max-age=0',
     }));
+  }
+  await deleteKeys(client, bucket, [...remote.keys()].filter((key) => !kept.has(key)));
+}
+
+/**
+ * publish 全体を1プロセスだけに絞る。
+ *
+ *   build は .html-share/build をまるごと作り直すので、生成の途中はページが欠けた
+ *   状態になる。syncTree は「ローカルに無いキーは消す」ので、その欠けた状態を正として
+ *   バケット側のページを消してしまう。publish が2つ重なるだけで起きるうえ、
+ *   どちらのコマンドも成功して終わるため、消えたことに気づく手がかりが残らない。
+ *
+ *   「開始時に他の publish が無いこと」を確認するだけでは足りない。確認から送信完了までの
+ *   あいだに始まった build を止められないので、送り終えるまでロックを持ち続ける。
+ */
+export function acquirePublishLock(config: HtmlShareConfig): () => void {
+  const lock = path.resolve(config.baseDir, '.html-share', 'publish.lock');
+  mkdirSync(path.dirname(lock), { recursive: true });
+  if (!takeLock(lock)) {
+    throw new Error(`Another publish is in progress. Wait for it to finish, or remove ${lock} if no process owns it.`);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    rmSync(lock, { recursive: true, force: true });
+  };
+}
+
+/**
+ * ロックの取得は mkdir のアトミック性だけで判定する（既存なら EEXIST で失敗する）。
+ * 既にあるディレクトリへ自分の pid を書いて所有を主張してはいけない。他のプロセスが
+ * 持っているロックを黙って奪うことになる。
+ */
+function takeLock(lock: string): boolean {
+  const pidFile = path.join(lock, 'pid');
+  try {
+    mkdirSync(lock);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    // 落ちたプロセスが残したロックは引き取る。放置すると publish が二度と通らない。
+    // pid が読めないロックは「作られた直後」の可能性があるので、奪わず持ち主として扱う。
+    let owner = 0;
+    try {
+      owner = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10);
+    } catch {
+      return false;
+    }
+    if (!Number.isInteger(owner) || owner <= 0 || isAlive(owner)) return false;
+    rmSync(lock, { recursive: true, force: true });
+    try {
+      mkdirSync(lock);
+    } catch {
+      return false;
+    }
+  }
+  writeFileSync(pidFile, `${process.pid}\n`);
+  return true;
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM は「他ユーザーのプロセスだが存在する」。生きている扱いにする。
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -102,6 +194,8 @@ function ownerManifest(manifest: BuildManifest, config: HtmlShareConfig): object
   const privateKeyPath = resolveFromConfig(config, config.cloudflare.privateKeyPath);
   return {
     generatedAt: manifest.generatedAt,
+    internalSharing: manifest.internalSharing,
+    maximumShareDays: manifest.maximumShareDays,
     pages: manifest.pages.map((page: BuiltPage) => ({
       ...page,
       href: signUrl({
@@ -113,20 +207,37 @@ function ownerManifest(manifest: BuildManifest, config: HtmlShareConfig): object
   };
 }
 
-export function buildOnly(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
+/** publish から呼ぶ用。ロックは呼び出し側が持っている（二重取得するとその場で失敗する）。 */
+function buildUnlocked(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
   const buildRoot = path.resolve(config.baseDir, '.html-share', 'build');
   const manifest = buildSite(config, buildRoot);
-  copyConsole(buildRoot, { generatedAt: manifest.generatedAt, pages: manifest.pages.map((page) => ({ ...page, href: null })) });
+  copyConsole(buildRoot, { ...manifest, pages: manifest.pages.map((page) => ({ ...page, href: null })) });
   return { buildRoot, manifest };
 }
 
+export function buildOnly(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
+  const release = acquirePublishLock(config);
+  try {
+    return buildUnlocked(config);
+  } finally {
+    release();
+  }
+}
+
 export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: string; pages: number }> {
-  const { buildRoot, manifest } = buildOnly(config);
-  copyConsole(buildRoot, ownerManifest(manifest, config));
-  const client = r2Client(config);
-  await uploadTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'));
-  await uploadTree(client, config.cloudflare.consoleBucket, path.join(buildRoot, 'console'));
-  return { consoleUrl: `${consoleUrl(config)}/app/index.html`, pages: manifest.pages.length };
+  // build と送信の両方を1つのロックで囲む。送信も .html-share/build を読む区間なので、
+  // ここを外すと「送信中に別の build が生成物を作り直す」状態が起きる。
+  const release = acquirePublishLock(config);
+  try {
+    const { buildRoot, manifest } = buildUnlocked(config);
+    copyConsole(buildRoot, ownerManifest(manifest, config));
+    const client = r2Client(config);
+    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'));
+    await syncTree(client, config.cloudflare.consoleBucket, path.join(buildRoot, 'console'));
+    return { consoleUrl: `${consoleUrl(config)}/app/index.html`, pages: manifest.pages.length };
+  } finally {
+    release();
+  }
 }
 
 export function share(config: HtmlShareConfig, query: string, days: number): string {
@@ -138,14 +249,17 @@ export function share(config: HtmlShareConfig, query: string, days: number): str
   // slugの完全一致を最優先する。他ページのslug/titleの接頭辞になっているだけで
   // 「複数一致」エラーになっていた（例: report-2026-08-04-141049 と
   // report-2026-08-04-141049-ja）。完全一致が無いときだけ部分一致にフォールバックする。
-  const exact = manifest.pages.filter((page) => page.slug === query);
-  const matches = exact.length === 1
-    ? exact
-    : manifest.pages.filter((page) => page.slug.includes(query) || page.title.includes(query));
+  const matches = matchingPages(manifest.pages, query);
   if (matches.length !== 1) throw new Error(matches.length ? `Multiple pages match ${query}: ${matches.map((p) => p.slug).join(', ')}` : `Page not found: ${query}`);
   return signUrl({
     url: `${contentUrl(config)}/${matches[0].objectKey}`,
     privateKeyPath: resolveFromConfig(config, config.cloudflare.privateKeyPath),
     days,
   });
+}
+
+export function matchingPages(pages: BuiltPage[], query: string): BuiltPage[] {
+  const exact = pages.filter((page) => page.slug === query);
+  if (exact.length > 0) return exact;
+  return pages.filter((page) => page.slug.includes(query) || page.title.includes(query));
 }

@@ -1,7 +1,11 @@
 (() => {
   const script = document.currentScript;
   const currentSlug = script?.dataset.slug ?? '';
-  if (!currentSlug || !matchMedia('(max-width: 46rem)').matches) return;
+  // 画面幅では絞らない。本体URL（/pages/<slug>/index.html）を直に開いたときは、
+  // PCでもホームと「…」が無いとトップへ戻る手段が消え、共有URLも発行できない。
+  // 絞るのは iframe の中だけ。PCでトップから開いた場合は app/index.html が同じ操作を
+  // 自前で重ねるので、ここでも出すと操作が2組ぶら下がる。
+  if (!currentSlug || window.self !== window.top) return;
 
   // 一覧の見た目と描画は page-list.js が唯一の実装。ここへ写しを作らないこと
   const L = window.MyBriefsList;
@@ -54,8 +58,15 @@
         pointer-events: none;
         transition: transform .24s ease, opacity .18s ease;
       }
+      /* PCはホイールを少し戻せば出したいので、消さずに上へ逃がして滑らかに戻す */
       .toolbar.reading {
-        display: none;
+        transform: translateY(-5rem);
+        opacity: 0;
+      }
+      .toolbar.reading .tool { pointer-events: none; }
+      @media (max-width: 46rem) {
+        /* スマホは backdrop-filter を載せたまま流すとスクロールが重くなる。描画から外す */
+        .toolbar.reading { display: none; }
       }
       .tool {
         width: 2.75rem;
@@ -76,10 +87,28 @@
       .tool svg { width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
       .tool.more svg { fill: currentColor; stroke: none; }
       .tool:active { transform: scale(.94); }
+      /* iframe 越しのトップ（app/index.html の #home-btn / #page-more）と同じ角丸にする。
+         同じPCで入口によって丸と角丸が入れ替わると継ぎはぎに見える */
+      @media (min-width: 46.0625rem) {
+        .tool { border-radius: 1rem; }
+      }
+      @media (hover: hover) {
+        .tool, .action, .issue, .share-panel select { cursor: pointer; }
+        .tool:hover { background: var(--panel); color: var(--ink); }
+        .action:hover { background: rgba(10, 70, 149, .08); }
+        .action.delete:hover { background: rgba(217, 45, 32, .08); }
+        .action:disabled { cursor: default; }
+        .action:disabled:hover { background: transparent; }
+      }
       /* display を持つ要素は hidden 属性だけでは隠れないので、明示的に落とす */
-      .action-menu[hidden], .share-panel[hidden] { display: none; }
+      .action-menu[hidden], .share-panel[hidden], .share-toast[hidden], .popover-dismiss[hidden] { display: none; }
+      .popover-dismiss {
+        position: fixed; inset: 0; z-index: 2147483002;
+        background: transparent;
+      }
       .action-menu,
-      .share-panel {
+      .share-panel,
+      .share-toast {
         position: fixed;
         z-index: 2147483003;
         top: calc(3.65rem + env(safe-area-inset-top, 0px));
@@ -114,14 +143,29 @@
         border-radius: 1rem;
       }
       .share-panel label { display: grid; gap: .25rem; color: var(--mut); font-size: .68rem; }
+      /* ⚠️ font-size 16px は必須。上の label の .68rem を継承すると 10.9px になり、
+         iOS Safari が入力欄フォーカス時にページごと拡大する（app/index.html の
+         #page-share-panel select と対で直すこと） */
       .share-panel select, .issue {
         min-width: 0; min-height: 2.4rem; padding: .4rem .55rem;
         border: 1px solid var(--line); border-radius: .6rem; background: #f6f7f9; color: var(--ink);
+        font-size: 16px;
       }
       .issue { grid-column: 1 / -1; border-color: var(--blue); background: var(--blue); color: #fff; font-weight: 600; }
       .issue:disabled { opacity: .72; }
+      .share-toast {
+        width: min(18rem, calc(100vw - 1.1rem));
+        padding: .7rem .85rem;
+        color: var(--ink); font-size: .82rem; line-height: 1.4;
+        border-radius: 1rem;
+      }
+      .share-toast strong { display: block; font-weight: 650; }
+      .share-toast .toast-meta {
+        display: block; margin-top: .15rem;
+        color: var(--mut); font-size: .72rem; font-weight: 400;
+      }
       @media (prefers-reduced-transparency: reduce) {
-        .tool, .action-menu, .share-panel { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+        .tool, .action-menu, .share-panel, .share-toast { background: #fff; backdrop-filter: none; -webkit-backdrop-filter: none; }
       }
       @media (prefers-reduced-motion: reduce) {
         .toolbar { transition: none; }
@@ -131,11 +175,12 @@
       <button class="tool nav" type="button" aria-label="トップへ戻る" title="トップへ戻る">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.5l8 6.7M6.4 9.6V19h11.2V9.6"/></svg>
       </button>
-      <button class="tool more" type="button" aria-label="ページ操作を開く" aria-expanded="false">
+      <button class="tool more" type="button" aria-label="ページ操作を開く" aria-haspopup="menu" aria-expanded="false" aria-controls="page-menu">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
       </button>
     </div>
-    <div class="action-menu" role="menu" aria-label="ページ操作" hidden>
+    <div class="popover-dismiss" hidden></div>
+    <div class="action-menu" id="page-menu" role="menu" aria-label="ページ操作" hidden>
       <button class="action star-action" type="button" role="menuitem" disabled>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span>スターを付ける</span>
       </button>
@@ -157,6 +202,10 @@
       <label>有効日数<select class="days"><option>1</option><option>3</option><option selected>7</option><option>14</option><option>30</option><option>90</option></select></label>
       <button class="issue" type="button">発行してコピー</button>
     </div>
+    <div class="share-toast" role="status" hidden>
+      <strong>コピーしました</strong>
+      <span class="toast-meta"></span>
+    </div>
   `;
 
   const $ = (selector) => root.querySelector(selector);
@@ -165,7 +214,10 @@
   const more = $('.more');
   const actionMenu = $('.action-menu');
   const sharePanel = $('.share-panel');
+  const shareToast = $('.share-toast');
+  const popoverDismiss = $('.popover-dismiss');
   const issue = $('.issue');
+  let shareToastTimer = 0;
   const STAR_KEY = 'mb_starred_pages';
   const HIDDEN_KEY = 'mb_hidden_pages';
   const READ_KEY = 'mb_read_marks';
@@ -181,6 +233,24 @@
   // { ページの source: 開いたときの更新日時 }。更新日時ごと持つので、再更新で自動的に未読へ戻る
   let readMarks = {};
   let knowsReadMarks = false;
+
+  function configureShareOptions(manifest) {
+    const scope = $('.scope');
+    if (!manifest.internalSharing) {
+      scope.querySelector('option[value="i"]')?.remove();
+      scope.value = 'p';
+    }
+
+    const maximumDays = Number(manifest.maximumShareDays);
+    const days = $('.days');
+    if (Number.isInteger(maximumDays) && maximumDays > 0) {
+      for (const option of [...days.options]) {
+        if (Number(option.value) > maximumDays) option.remove();
+      }
+      const available = [...days.options].map((option) => Number(option.value));
+      days.value = String(available.includes(7) ? 7 : available.at(-1));
+    }
+  }
   function readList(key, max) {
     try {
       const value = JSON.parse(localStorage.getItem(key) ?? '[]');
@@ -232,6 +302,8 @@
     return payload;
   }
 
+  // 読み込み直後の書き戻しと、メニュー操作の保存がぶつかると、
+  // どちらが後に届くか分からず古い状態で上書きされる。直列に流して順序を保つ
   let pendingSync = Promise.resolve();
 
   function persistPreferences() {
@@ -250,14 +322,17 @@
   }
 
   function setToolbarHidden(hidden) {
-    if (!actionMenu.hidden || !sharePanel.hidden) hidden = false;
+    if (!actionMenu.hidden || !sharePanel.hidden || !shareToast.hidden) hidden = false;
     toolbar.classList.toggle('reading', hidden);
   }
 
   function closePopovers() {
     actionMenu.hidden = true;
     sharePanel.hidden = true;
+    shareToast.hidden = true;
+    popoverDismiss.hidden = true;
     more.setAttribute('aria-expanded', 'false');
+    clearTimeout(shareToastTimer);
   }
 
   function syncMenu() {
@@ -272,11 +347,13 @@
   nav.addEventListener('click', () => { location.href = '/app/index.html'; });
 
   more.addEventListener('click', () => {
-    const willOpen = actionMenu.hidden;
+    const willOpen = actionMenu.hidden && sharePanel.hidden;
     closePopovers();
+    if (!willOpen) return;
     syncMenu();
-    actionMenu.hidden = !willOpen;
-    more.setAttribute('aria-expanded', String(willOpen));
+    actionMenu.hidden = false;
+    popoverDismiss.hidden = false;
+    more.setAttribute('aria-expanded', 'true');
     setToolbarHidden(false);
   });
   $('.star-action').addEventListener('click', async () => {
@@ -304,6 +381,8 @@
     if (!L.markUnread(currentPage, readMarks)) return;
     try {
       await persistPreferences();
+      // ここに留まると、読み込み直した拍子にまた既読へ倒れる。
+      // 一覧へ戻して、黄色い「新着」に戻ったことをその場で見せる
       location.href = '/app/index.html';
     } catch (error) {
       if (previousMark === undefined) delete readMarks[currentPage.source];
@@ -316,6 +395,8 @@
   $('.share').addEventListener('click', () => {
     actionMenu.hidden = true;
     sharePanel.hidden = false;
+    shareToast.hidden = true;
+    popoverDismiss.hidden = false;
     more.setAttribute('aria-expanded', 'true');
   });
   $('.delete').addEventListener('click', async () => {
@@ -362,26 +443,59 @@
       if (!response.ok || !payload.url) throw new Error(payload.error ?? '共有URLを発行できませんでした');
       generatedUrl = payload.url;
       await navigator.clipboard.writeText(generatedUrl);
-      issue.textContent = '✓ コピーしました';
+      const expires = new Date(payload.expiresAt * 1000).toLocaleString('ja-JP', {
+        timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
+      sharePanel.hidden = true;
+      more.setAttribute('aria-expanded', 'false');
+      shareToast.querySelector('strong').textContent = 'コピーしました';
+      shareToast.querySelector('.toast-meta').textContent = `${expires}まで有効`;
+      shareToast.hidden = false;
+      popoverDismiss.hidden = false;
+      clearTimeout(shareToastTimer);
+      shareToastTimer = setTimeout(closePopovers, 2500);
     } catch (error) {
       console.error(error);
-      issue.textContent = generatedUrl ? 'URLを表示しました' : '発行できませんでした';
-      if (generatedUrl) prompt('このURLをコピーしてください', generatedUrl);
+      if (generatedUrl) {
+        prompt('このURLをコピーしてください', generatedUrl);
+      } else {
+        sharePanel.hidden = true;
+        more.setAttribute('aria-expanded', 'false');
+        shareToast.querySelector('strong').textContent = '発行できませんでした';
+        shareToast.querySelector('.toast-meta').textContent = error instanceof Error ? error.message : String(error);
+        shareToast.hidden = false;
+        popoverDismiss.hidden = false;
+        clearTimeout(shareToastTimer);
+        shareToastTimer = setTimeout(closePopovers, 5000);
+      }
     } finally {
-      setTimeout(() => {
-        issue.disabled = false;
-        issue.textContent = '発行してコピー';
-      }, 2200);
+      issue.disabled = false;
+      issue.textContent = '発行してコピー';
     }
   });
 
+  popoverDismiss.addEventListener('pointerdown', closePopovers);
   document.addEventListener('pointerdown', (event) => {
     if (event.composedPath().includes(host)) return;
     closePopovers();
   });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (actionMenu.hidden && sharePanel.hidden && shareToast.hidden) return;
+    event.preventDefault();
+    closePopovers();
+  });
+  // スマホは画面が短く、指1本で上端まで戻せるので、下へ読む間は隠したままでよい。
+  // PCはページが長いので、上へ少し戻した時点で出す。判定の向きと閾値は
+  // app/index.html の watchFrameScroll と同じにしてある（入口で挙動を変えない）。
+  const narrow = matchMedia('(max-width: 46rem)');
+  let lastScrollY = scrollY;
   addEventListener('scroll', () => {
     const nextY = scrollY;
-    setToolbarHidden(nextY > 24);
+    if (narrow.matches) setToolbarHidden(nextY > 24);
+    else if (nextY <= 24 || nextY < lastScrollY - 6) setToolbarHidden(false);
+    else if (nextY > lastScrollY + 6) setToolbarHidden(true);
+    lastScrollY = nextY;
   }, { passive: true });
 
   starredSources = readList(STAR_KEY, 200);
@@ -390,6 +504,7 @@
   const hadLocalReadMarks = knowsReadMarks;
 
   fetch('/app/manifest.json', { cache: 'no-store' }).then((response) => response.json()).then(async (manifest) => {
+    configureShareOptions(manifest);
     allPages = manifest.pages ?? [];
     const validSources = new Set(allPages.map((page) => page.source));
     hiddenSources = new Set([...hiddenSources].filter((sourceValue) => validSources.has(sourceValue)));
@@ -427,11 +542,13 @@
       seedReadMarks();
     }
 
+    preferencesReady = true;
+    syncMenu();
+    // いま開いている当のページは読んだ状態にする。トップを経由せず
+    // 共有URLやホーム画面から直接来たときも、これで新着が外れる
     if (L.markRead(currentPage, readMarks)) needsPush = true;
     saveLocalPreferences();
     if (needsPush) persistPreferences().catch((error) => console.warn(error));
-    preferencesReady = true;
-    syncMenu();
   }).catch((error) => {
     console.error(error);
   });
