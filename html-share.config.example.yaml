@@ -26,3 +26,13 @@ content:
   # 社内限定URLを使う場合だけ、組織の出口IPをCIDRで指定します。
   allowedInternalCidrs:
     - 203.0.113.0/24
+
+  # ── リンクプレビュー（OGP） ───────────────────────────────────────
+  # 共有したURLをSlackやTeamsへ貼ったときに出るカードの中身です。
+  # siteName はカードに出るアプリ名。省略すると「#HTML共有くん」になります。
+  siteName: "#HTML共有くん"
+  # ogImageUrl はカードに出す画像の絶対URL（https）。省略すると画像なしのカードになります。
+  # 配信面は署名付きURLなのでクローラーが画像を取れません。画像を出すなら、
+  # 認証なしで取れる場所（GitHub Pages、S3の公開バケットなど）へ1枚置いてURLを書きます。
+  # Teams は og:image が無いとカードを出しません（Slack と X はテキストだけでも出ます）。
+  # ogImageUrl: https://example.com/og-card.png

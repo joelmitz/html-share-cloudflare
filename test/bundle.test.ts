@@ -57,6 +57,7 @@ test('includes share capabilities in the generated manifest without exposing CID
       maximumShareDays: 30,
       maximumAssetBytes: 1024,
       allowedInternalCidrs: ['203.0.113.0/24'],
+      siteName: '#HTML共有くん',
     },
     configFile: path.join(root, 'html-share.config.yaml'),
     baseDir: root,
@@ -66,4 +67,72 @@ test('includes share capabilities in the generated manifest without exposing CID
   assert.equal(manifest.internalSharing, true);
   assert.equal(manifest.maximumShareDays, 30);
   assert.doesNotMatch(JSON.stringify(manifest), /203\.0\.113/);
+});
+
+test('adds link preview tags after the charset declaration', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogp-'));
+  writeFileSync(
+    path.join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>四半期の振り返り</title></head>'
+      + '<body><div class="hero"><p class="sub">売上と稼働を1枚にまとめました</p></div>'
+      + '<p>本文の最初の段落です</p></body></html>',
+  );
+  const bundled = bundleHtml(path.join(root, 'page.html'), [realpathSync(root)], 1024, {
+    siteName: '#HTML共有くん',
+  });
+
+  assert.match(bundled, /<meta property="og:site_name" content="#HTML共有くん">/);
+  assert.match(bundled, /<meta property="og:title" content="四半期の振り返り">/);
+  // 説明文はヒーローのリード文から拾う
+  assert.match(bundled, /<meta property="og:description" content="売上と稼働を1枚にまとめました">/);
+  // 画像を設定していないので og:image は出さず、カードは小さいほうを指定する
+  assert.doesNotMatch(bundled, /og:image/);
+  assert.match(bundled, /<meta name="twitter:card" content="summary">/);
+
+  // 文字コード宣言より後ろに入っていること。日本語が charset より前に出ると
+  // クローラー側が文字化けしうる（文字コードは先頭1024バイトまでに宣言する決まり）。
+  assert.ok(bundled.indexOf('charset') < bundled.indexOf('og:title'));
+  assert.ok(Buffer.byteLength(bundled.slice(0, bundled.indexOf('charset'))) < 1024);
+});
+
+test('uses the configured image and title for link previews', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogp-image-'));
+  writeFileSync(
+    path.join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>もとの題</title></head><body><p>本文</p></body></html>',
+  );
+  const bundled = bundleHtml(path.join(root, 'page.html'), [realpathSync(root)], 1024, {
+    siteName: 'My Share',
+    title: '設定で付けた題',
+    imageUrl: 'https://example.com/og.png',
+  });
+
+  assert.match(bundled, /<meta property="og:title" content="設定で付けた題">/);
+  assert.match(bundled, /<meta property="og:image" content="https:\/\/example\.com\/og\.png">/);
+  assert.match(bundled, /<meta name="twitter:card" content="summary_large_image">/);
+});
+
+test('leaves pages that already declare their own link preview alone', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogp-own-'));
+  writeFileSync(
+    path.join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8">'
+      + '<meta property="og:title" content="自前の題"><title>別の題</title></head><body><p>本文</p></body></html>',
+  );
+  const bundled = bundleHtml(path.join(root, 'page.html'), [realpathSync(root)], 1024, {
+    siteName: '#HTML共有くん',
+  });
+
+  assert.match(bundled, /<meta property="og:title" content="自前の題">/);
+  assert.doesNotMatch(bundled, /og:site_name/);
+});
+
+test('adds nothing when link previews are not configured', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogp-off-'));
+  writeFileSync(
+    path.join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>題</title></head><body><p>本文</p></body></html>',
+  );
+  const bundled = bundleHtml(path.join(root, 'page.html'), [realpathSync(root)], 1024);
+  assert.doesNotMatch(bundled, /og:/);
 });

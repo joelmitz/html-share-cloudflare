@@ -67,3 +67,27 @@ test('rejects invalid internal CIDRs', () => {
   writeFileSync(config, source);
   assert.throws(() => loadConfig(config), /must be an IPv4 CIDR/);
 });
+
+test('defaults the link preview name and rejects unsafe image URLs', () => {
+  const { config } = fixture();
+
+  // 既定のアプリ名。設定を書かなくてもカードに名前が出る。
+  assert.equal(loadConfig(config).content.siteName, '#HTML共有くん');
+  assert.equal(loadConfig(config).content.ogImageUrl, undefined);
+
+  const base = readFileSync(config, 'utf8');
+
+  writeFileSync(config, `${base}\n  siteName: Team Share\n  ogImageUrl: https://example.com/og.png\n`);
+  assert.equal(loadConfig(config).content.siteName, 'Team Share');
+  assert.equal(loadConfig(config).content.ogImageUrl, 'https://example.com/og.png');
+
+  // 画像URLはクローラーが取りに行く先なので https だけを許す。
+  writeFileSync(config, `${base}\n  ogImageUrl: http://example.com/og.png\n`);
+  assert.throws(() => loadConfig(config), /must use https/);
+
+  writeFileSync(config, `${base}\n  ogImageUrl: "javascript:alert(1)"\n`);
+  assert.throws(() => loadConfig(config), /must use https/);
+
+  writeFileSync(config, `${base}\n  ogImageUrl: "/relative/og.png"\n`);
+  assert.throws(() => loadConfig(config), /must be an absolute https URL/);
+});
