@@ -30,6 +30,10 @@ export interface HtmlShareConfig {
     maximumShareDays: number;
     maximumAssetBytes: number;
     allowedInternalCidrs: string[];
+    /** リンクプレビュー（OGP）で名乗るアプリ名 */
+    siteName: string;
+    /** リンクプレビューに出す画像の絶対URL。省略すると og:image を出さない */
+    ogImageUrl?: string;
   };
   configFile: string;
   baseDir: string;
@@ -52,6 +56,19 @@ function hostname(value: unknown, name: string): string {
     throw new Error(`${name} must be a hostname without a scheme or path`);
   }
   return result;
+}
+
+/** リンクプレビューの画像URL。クローラーが認証なしで取れる先だけを許す。 */
+function httpsUrl(value: unknown, name: string): string {
+  const result = text(value, name);
+  let parsed: URL;
+  try {
+    parsed = new URL(result);
+  } catch {
+    throw new Error(`${name} must be an absolute https URL`);
+  }
+  if (parsed.protocol !== 'https:') throw new Error(`${name} must use https`);
+  return parsed.toString();
 }
 
 function cidr(value: unknown, name: string): string {
@@ -130,6 +147,12 @@ export function loadConfig(file?: string): HtmlShareConfig {
       maximumShareDays: positiveInteger(content.maximumShareDays, 30, 'content.maximumShareDays'),
       maximumAssetBytes: positiveInteger(content.maximumAssetBytes, 10 * 1024 * 1024, 'content.maximumAssetBytes'),
       allowedInternalCidrs,
+      siteName: typeof content.siteName === 'string' && content.siteName.trim()
+        ? content.siteName.trim()
+        : '#HTML共有くん',
+      ogImageUrl: content.ogImageUrl === undefined || content.ogImageUrl === null
+        ? undefined
+        : httpsUrl(content.ogImageUrl, 'content.ogImageUrl'),
     },
     configFile,
     baseDir: path.dirname(configFile),

@@ -91,6 +91,66 @@ function addMeta(html: string): string {
   return `${tags.join('\n')}\n${html}`;
 }
 
+/** リンクプレビュー（OGP）の設定。共有したURLをSlackやTeamsへ貼ったときのカードを決める。 */
+export interface OgOptions {
+  /** カードに出すアプリ名 */
+  siteName: string;
+  /** 設定で上書きしたページ名。省略するとHTMLの <title> から拾う */
+  title?: string;
+  /** 画像の絶対URL。省略すると og:image を出さない */
+  imageUrl?: string;
+}
+
+function attributeValue(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+/**
+ * og:description に使う1文。ヒーローのリード文 → lead → 最初の段落の順に拾う。
+ * 同梱スキル create-html が作るHTMLは、ヒーローに1文サマリを置く作りになっている。
+ */
+function extractDescription(html: string, limit = 110): string {
+  const pick = (pattern: RegExp): string => {
+    const matched = html.match(pattern);
+    if (!matched) return '';
+    return matched[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  };
+  const text = pick(/<p[^>]*class\s*=\s*["\'][^"\']*\bsub\b[^"\']*["\'][^>]*>([\s\S]*?)<\/p>/i)
+    || pick(/<p[^>]*class\s*=\s*["\'][^"\']*\blead\b[^"\']*["\'][^>]*>([\s\S]*?)<\/p>/i)
+    || pick(/<p(?![^>]*\bclass\s*=)[^>]*>([\s\S]*?)<\/p>/i);
+  if (!text) return '';
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+}
+
+/**
+ * OGPタグを <meta charset> の「後ろ」へ入れる。
+ *
+ * 文字コードは先頭1024バイトまでに宣言する決まりなので、日本語のタイトルと説明文が
+ * charset より前に出るとクローラー側が文字化けしうる。head の直後へ積むと、
+ * このファイルが足す他のメタタグのぶん charset が押し下がる。
+ */
+function addOgp(html: string, og: OgOptions | undefined): string {
+  // siteName が無い呼ばれ方（bundleHtml を直接使う場合など）では、何も足さない。
+  if (!og?.siteName) return html;
+  if (/<meta[^>]+property\s*=\s*["\']og:title["\']/i.test(html)) return html;
+  const title = og.title?.trim() || extractTitle(html, og.siteName);
+  const description = extractDescription(html);
+  const tags = [
+    '<meta property="og:type" content="article">',
+    `<meta property="og:site_name" content="${attributeValue(og.siteName)}">`,
+    `<meta property="og:title" content="${attributeValue(title)}">`,
+    description ? `<meta property="og:description" content="${attributeValue(description)}">` : '',
+    og.imageUrl ? `<meta property="og:image" content="${attributeValue(og.imageUrl)}">` : '',
+    og.imageUrl
+      ? '<meta name="twitter:card" content="summary_large_image">'
+      : '<meta name="twitter:card" content="summary">',
+  ].filter(Boolean).join('\n');
+  const charset = html.match(/<meta[^>]*charset[^>]*>/i);
+  if (charset) return html.replace(charset[0], `${charset[0]}\n${tags}`);
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (head) => `${head}\n${tags}`);
+  return `${tags}\n${html}`;
+}
+
 function dataUrl(file: string, maxBytes: number): string {
   const extension = path.extname(file).toLowerCase();
   const mime = MIME[extension];
@@ -101,7 +161,7 @@ function dataUrl(file: string, maxBytes: number): string {
   return `data:${mime};base64,${readFileSync(file).toString('base64')}`;
 }
 
-export function bundleHtml(sourceFile: string, roots: string[], maxAssetBytes: number): string {
+export function bundleHtml(sourceFile: string, roots: string[], maxAssetBytes: number, og?: OgOptions): string {
   const source = realpathSync(sourceFile);
   if (!inside(source, roots)) throw new Error(`Page is outside content.roots: ${sourceFile}`);
   const sourceDirectory = path.dirname(source);
@@ -117,7 +177,7 @@ export function bundleHtml(sourceFile: string, roots: string[], maxAssetBytes: n
     if (!inside(resolved, roots)) throw new Error(`Local asset escapes content.roots: ${value}`);
     return `${attribute}=${quote}${dataUrl(resolved, maxAssetBytes)}${quote}`;
   });
-  return injectMobileHelpers(addMeta(html));
+  return injectMobileHelpers(addOgp(addMeta(html), og));
 }
 
 function injectMobileHelpers(html: string): string {
@@ -151,7 +211,11 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
   const pages = config.content.pages.map((page) => {
     const source = pagePath(config, page);
     const sourceReal = realpathSync(source);
-    const html = bundleHtml(sourceReal, roots, config.content.maximumAssetBytes);
+    const html = bundleHtml(sourceReal, roots, config.content.maximumAssetBytes, {
+      siteName: config.content.siteName,
+      title: page.title,
+      imageUrl: config.content.ogImageUrl,
+    });
     const fallback = path.basename(source, path.extname(source));
     let slug = slugify(page.slug || fallback);
     if (used.has(slug)) slug = `${slug}-${createHash('sha256').update(sourceReal).digest('hex').slice(0, 6)}`;
