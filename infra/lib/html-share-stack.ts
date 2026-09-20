@@ -62,7 +62,10 @@ function securityPolicy(
     customHeadersBehavior: {
       customHeaders: [
         { header: 'Cache-Control', value: 'no-store, max-age=0', override: true },
-        { header: 'X-Robots-Tag', value: 'noindex, nofollow, nosnippet, noimageindex, noarchive', override: true },
+        // nosnippet / noimageindex は付けない（2026-09-20）。検索エンジンには noindex が
+        // 効いているので重複でしかない一方、リンクプレビューのクローラーがこれを読むと
+        // 「説明文を出すな」「画像を出すな」と受け取り、カードを縮める側にしか働かない。
+        { header: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive', override: true },
         { header: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()', override: true },
       ],
     },

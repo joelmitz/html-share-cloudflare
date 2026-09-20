@@ -35,6 +35,8 @@ export interface HtmlShareConfig {
     siteName: string;
     /** リンクプレビューに出す画像の絶対URL。省略すると og:image を出さない */
     ogImageUrl?: string;
+    /** カードの大きさ。省略すると summary（各媒体でいちばん小さいカード） */
+    ogCardType?: 'summary' | 'summary_large_image';
   };
   configFile: string;
   baseDir: string;
@@ -155,6 +157,10 @@ export function loadConfig(file?: string): HtmlShareConfig {
       ogImageUrl: content.ogImageUrl === undefined || content.ogImageUrl === null
         ? undefined
         : httpsUrl(content.ogImageUrl, 'content.ogImageUrl'),
+      ogCardType: content.ogCardType === 'summary_large_image' ? 'summary_large_image'
+        : content.ogCardType === undefined || content.ogCardType === null || content.ogCardType === 'summary'
+          ? undefined
+          : (() => { throw new Error('content.ogCardType must be "summary" or "summary_large_image"'); })(),
     },
     configFile,
     baseDir: path.dirname(configFile),

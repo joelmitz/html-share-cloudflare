@@ -91,6 +91,9 @@ function addMeta(html: string): string {
   return `${tags.join('\n')}\n${html}`;
 }
 
+/** カードの大きさ。summary は各媒体でいちばん小さいカード、large は横長の大きなカード。 */
+export type OgCardType = 'summary' | 'summary_large_image';
+
 /** リンクプレビュー（OGP）の設定。共有したURLをSlackやTeamsへ貼ったときのカードを決める。 */
 export interface OgOptions {
   /** カードに出すアプリ名 */
@@ -99,6 +102,15 @@ export interface OgOptions {
   title?: string;
   /** 画像の絶対URL。省略すると og:image を出さない */
   imageUrl?: string;
+  /**
+   * カードの大きさ。既定は summary（小さいカード）。
+   *
+   * 画像を指定したら自動で summary_large_image にする作りだったが、それをやめた。
+   * large_image は 1200x630 前後の横長画像が前提で、正方形やロゴ1枚を渡すと
+   * 引き伸ばされる。しかもページごとに違う画像を用意しない運用では、
+   * 大きなカードにする意味がほとんどない（2026-09-20）。
+   */
+  cardType?: OgCardType;
 }
 
 function attributeValue(value: string): string {
@@ -135,15 +147,21 @@ function addOgp(html: string, og: OgOptions | undefined): string {
   if (/<meta[^>]+property\s*=\s*["\']og:title["\']/i.test(html)) return html;
   const title = og.title?.trim() || extractTitle(html, og.siteName);
   const description = extractDescription(html);
+  const cardType: OgCardType = og.cardType ?? 'summary';
   const tags = [
     '<meta property="og:type" content="article">',
     `<meta property="og:site_name" content="${attributeValue(og.siteName)}">`,
     `<meta property="og:title" content="${attributeValue(title)}">`,
     description ? `<meta property="og:description" content="${attributeValue(description)}">` : '',
     og.imageUrl ? `<meta property="og:image" content="${attributeValue(og.imageUrl)}">` : '',
-    og.imageUrl
-      ? '<meta name="twitter:card" content="summary_large_image">'
-      : '<meta name="twitter:card" content="summary">',
+    // 画像に説明を添えておくと、読み上げでもカードが意味を持つ。
+    og.imageUrl ? `<meta property="og:image:alt" content="${attributeValue(og.siteName)}">` : '',
+    `<meta name="twitter:card" content="${og.imageUrl ? cardType : 'summary'}">`,
+    // X は og:* へフォールバックする仕様だが、実測では twitter:* を明示したほうが安定する。
+    `<meta name="twitter:title" content="${attributeValue(title)}">`,
+    description ? `<meta name="twitter:description" content="${attributeValue(description)}">` : '',
+    og.imageUrl ? `<meta name="twitter:image" content="${attributeValue(og.imageUrl)}">` : '',
+    og.imageUrl ? `<meta name="twitter:image:alt" content="${attributeValue(og.siteName)}">` : '',
   ].filter(Boolean).join('\n');
   const charset = html.match(/<meta[^>]*charset[^>]*>/i);
   if (charset) return html.replace(charset[0], `${charset[0]}\n${tags}`);
@@ -215,6 +233,7 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
       siteName: config.content.siteName,
       title: page.title,
       imageUrl: config.content.ogImageUrl,
+      cardType: config.content.ogCardType,
     });
     const fallback = path.basename(source, path.extname(source));
     let slug = slugify(page.slug || fallback);
