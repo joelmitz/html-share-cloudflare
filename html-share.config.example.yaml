@@ -34,4 +34,10 @@ content:
   # 配信面は署名付きURLなのでクローラーが画像を取れません。画像を出すなら、
   # 認証なしで取れる場所（GitHub Pages、S3の公開バケットなど）へ1枚置いてURLを書きます。
   # Teams は og:image が無いとカードを出しません（Slack と X はテキストだけでも出ます）。
+  # 置いた画像は、URLを直接叩いて 200 と Content-Type: image/* が返ることを確かめてください。
+  # 落ちていても表に出ず、カードが静かに縮むだけです。
   # ogImageUrl: https://example.com/og-card.png
+  # ogCardType はカードの大きさ。省略すると summary（各媒体でいちばん小さいカード）です。
+  # summary_large_image は 1200x630 前後の横長画像を前提にした見せ方で、
+  # 正方形やロゴを渡すと引き伸ばされます。
+  # ogCardType: summary_large_image

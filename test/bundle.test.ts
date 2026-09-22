@@ -109,7 +109,44 @@ test('uses the configured image and title for link previews', () => {
 
   assert.match(bundled, /<meta property="og:title" content="設定で付けた題">/);
   assert.match(bundled, /<meta property="og:image" content="https:\/\/example\.com\/og\.png">/);
+  // 画像があっても既定は小さいカード。large_image は横長画像を前提にした見せ方で、
+  // 正方形やロゴを渡すと引き伸ばされる（2026-09-20 に既定を変更）。
+  assert.match(bundled, /<meta name="twitter:card" content="summary">/);
+  // X は og:* へフォールバックする仕様だが、実測では twitter:* を明示したほうが安定する
+  assert.match(bundled, /<meta name="twitter:title" content="設定で付けた題">/);
+  assert.match(bundled, /<meta name="twitter:image" content="https:\/\/example\.com\/og\.png">/);
+  assert.match(bundled, /<meta property="og:image:alt" content="My Share">/);
+});
+
+test('uses the large card only when it is asked for', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogp-large-'));
+  writeFileSync(
+    path.join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>題</title></head><body><p>本文</p></body></html>',
+  );
+  const bundled = bundleHtml(path.join(root, 'page.html'), [realpathSync(root)], 1024, {
+    siteName: 'My Share',
+    imageUrl: 'https://example.com/og.png',
+    cardType: 'summary_large_image',
+  });
+
   assert.match(bundled, /<meta name="twitter:card" content="summary_large_image">/);
+});
+
+test('keeps the small card when there is no image, even if the large card is asked for', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogp-large-noimage-'));
+  writeFileSync(
+    path.join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>題</title></head><body><p>本文</p></body></html>',
+  );
+  const bundled = bundleHtml(path.join(root, 'page.html'), [realpathSync(root)], 1024, {
+    siteName: 'My Share',
+    cardType: 'summary_large_image',
+  });
+
+  // 画像が無いのに large_image を名乗ると、X は画像を探しに行って空振りする
+  assert.match(bundled, /<meta name="twitter:card" content="summary">/);
+  assert.doesNotMatch(bundled, /og:image/);
 });
 
 test('leaves pages that already declare their own link preview alone', () => {
