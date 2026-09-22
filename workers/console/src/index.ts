@@ -35,7 +35,9 @@ function securityHeaders(env: Env, extra: Record<string, string> = {}): Headers 
   headers.set('referrer-policy', 'no-referrer');
   headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
   headers.set('cache-control', 'no-store, max-age=0');
-  headers.set('x-robots-tag', 'noindex, nofollow, nosnippet, noimageindex, noarchive');
+  // nosnippet / noimageindex は付けない（upstream cbc3ccbe）。noindex が検索エンジンには
+  // 効いている一方、リンクプレビューのクローラーがこれを読むとカードを縮める側にしか働かない。
+  headers.set('x-robots-tag', 'noindex, nofollow, noarchive');
   headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   for (const [name, value] of Object.entries(extra)) headers.set(name, value);
   return headers;
