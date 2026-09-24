@@ -31,12 +31,11 @@ content:
   # 共有したURLをSlackやTeamsへ貼ったときに出るカードの中身です。
   # siteName はカードに出るアプリ名。省略すると「#HTML共有くん」になります。
   siteName: "#HTML共有くん"
-  # ogImageUrl はカードに出す画像の絶対URL（https）。省略すると画像なしのカードになります。
-  # 配信面は署名付きURLなのでクローラーが画像を取れません。画像を出すなら、
-  # 認証なしで取れる場所（GitHub Pages、S3の公開バケットなど）へ1枚置いてURLを書きます。
-  # Teams は og:image が無いとカードを出しません（Slack と X はテキストだけでも出ます）。
-  # 置いた画像は、URLを直接叩いて 200 と Content-Type: image/* が返ることを確かめてください。
-  # 落ちていても表に出ず、カードが静かに縮むだけです。
+  # ogImageUrl はカードに出す画像。省略すると同梱の画像（assets/og-card.jpg）を
+  # 配信先の /og/card.jpg へ置いて使います（/og/* だけは署名なしで開ける設定です）。
+  # 自前の画像を使うなら絶対URL（https）を書きます。認証なしで取れる場所に置き、
+  # URLを直接叩いて 200 と Content-Type: image/* が返ることを確かめてください。
+  # false にすると画像なしのカードになります（Teams は og:image が無いとカードを出しません）。
   # ogImageUrl: https://example.com/og-card.png
   # ogCardType はカードの大きさ。省略すると summary（各媒体でいちばん小さいカード）です。
   # summary_large_image は 1200x630 前後の横長画像を前提にした見せ方で、

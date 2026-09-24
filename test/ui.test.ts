@@ -180,3 +180,12 @@ test('does not ship the discarded simplified dashboard files', () => {
     assert.throws(() => readFileSync(path.join(root, 'web', 'app', file), 'utf8'));
   }
 });
+
+test('serves only the link preview image without a signature', () => {
+  const stack = readFileSync(path.join(root, 'infra', 'lib', 'html-share-stack.ts'), 'utf8');
+  const behavior = stack.match(/'og\/\*': \{[\s\S]*?\n {8}\}/)?.[0];
+  assert.ok(behavior, 'og/* の配信ルールがありません');
+  // 署名なしで開けるのは og/* だけ。ページ本体（既定の配信）は署名付きのまま。
+  assert.doesNotMatch(behavior, /trustedKeyGroups/);
+  assert.match(stack, /defaultBehavior: \{[\s\S]*?trustedKeyGroups: \[keyGroup\][\s\S]*?additionalBehaviors/);
+});

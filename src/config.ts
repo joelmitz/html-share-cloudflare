@@ -33,8 +33,11 @@ export interface HtmlShareConfig {
     allowedInternalCidrs: string[];
     /** リンクプレビュー（OGP）で名乗るアプリ名 */
     siteName: string;
-    /** リンクプレビューに出す画像の絶対URL。省略すると og:image を出さない */
-    ogImageUrl?: string;
+    /**
+     * リンクプレビューに出す画像の絶対URL。省略すると同梱の画像（assets/og-card.jpg）を使う。
+     * false にすると og:image を出さない
+     */
+    ogImageUrl?: string | false;
     /** カードの大きさ。省略すると summary（各媒体でいちばん小さいカード） */
     ogCardType?: 'summary' | 'summary_large_image';
   };
@@ -156,7 +159,9 @@ export function loadConfig(file?: string): HtmlShareConfig {
         : '#HTML共有くん',
       ogImageUrl: content.ogImageUrl === undefined || content.ogImageUrl === null
         ? undefined
-        : httpsUrl(content.ogImageUrl, 'content.ogImageUrl'),
+        : content.ogImageUrl === false || content.ogImageUrl === 'none'
+          ? false
+          : httpsUrl(content.ogImageUrl, 'content.ogImageUrl'),
       ogCardType: content.ogCardType === 'summary_large_image' ? 'summary_large_image'
         : content.ogCardType === undefined || content.ogCardType === null || content.ogCardType === 'summary'
           ? undefined

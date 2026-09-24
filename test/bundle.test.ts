@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -67,6 +67,53 @@ test('includes share capabilities in the generated manifest without exposing CID
   assert.equal(manifest.internalSharing, true);
   assert.equal(manifest.maximumShareDays, 30);
   assert.doesNotMatch(JSON.stringify(manifest), /203\.0\.113/);
+});
+
+test('uses the bundled card image unless the config opts out or overrides it', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogcard-'));
+  writeFileSync(path.join(root, 'page.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Demo</title></head><body></body></html>');
+  const base = {
+    ownerEmail: 'owner@example.com',
+    aws: {
+      region: 'ap-northeast-1',
+      consoleDomain: 'console.example.com',
+      contentDomain: 'content.example.com',
+      certificateArn: 'arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-4000-8000-000000000000',
+      cognitoDomainPrefix: 'html-share-test',
+      publicKeyPath: '.html-share/keys/public.pem',
+      privateKeyPath: '.html-share/keys/private.pem',
+      privateKeyParameterName: '/html-share/test/private-key',
+    },
+    content: {
+      roots: ['.'],
+      pages: [{ path: 'page.html' }],
+      ownerLinkDays: 7,
+      maximumShareDays: 30,
+      maximumAssetBytes: 1024,
+      allowedInternalCidrs: [],
+      siteName: '#HTML共有くん',
+    },
+    configFile: path.join(root, 'html-share.config.yaml'),
+    baseDir: root,
+  } satisfies HtmlShareConfig;
+  const pageHtml = (build: string) => readFileSync(path.join(build, 'content', 'pages', 'page', 'index.html'), 'utf8');
+
+  // 既定：同梱の画像を配信先の og/card.jpg へ置き、中身から作った ?v= 付きで指す。
+  const build = path.join(root, 'build');
+  buildSite(base, build);
+  assert.ok(existsSync(path.join(build, 'content', 'og', 'card.jpg')), '同梱の画像が配信物に入っていません');
+  assert.match(pageHtml(build), /property="og:image" content="https:\/\/content\.example\.com\/og\/card\.jpg\?v=[0-9a-f]{8}"/);
+
+  // 自前の画像を指定したら、そちらを使い、同梱の画像は置かない。
+  const custom = path.join(root, 'build-custom');
+  buildSite({ ...base, content: { ...base.content, ogImageUrl: 'https://example.com/og.png' } }, custom);
+  assert.match(pageHtml(custom), /property="og:image" content="https:\/\/example\.com\/og\.png"/);
+  assert.ok(!existsSync(path.join(custom, 'content', 'og')));
+
+  // false なら画像を出さない。
+  const none = path.join(root, 'build-none');
+  buildSite({ ...base, content: { ...base.content, ogImageUrl: false } }, none);
+  assert.doesNotMatch(pageHtml(none), /og:image/);
 });
 
 test('adds link preview tags after the charset declaration', () => {

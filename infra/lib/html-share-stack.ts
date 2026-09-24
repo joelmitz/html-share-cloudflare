@@ -104,17 +104,32 @@ export class HtmlShareStack extends Stack {
       comment: 'HTML Share trusted signers',
     });
 
+    const contentBucketOrigin = origins.S3BucketOrigin.withOriginAccessControl(contentBucket);
+    const contentHeaders = securityPolicy(this, 'ContentHeaders', true, consoleOrigin, contentOrigin);
     const contentDistribution = new cloudfront.Distribution(this, 'ContentDistribution', {
       domainNames: [props.contentDomain],
       certificate,
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(contentBucket),
+        origin: contentBucketOrigin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-        responseHeadersPolicy: securityPolicy(this, 'ContentHeaders', true, consoleOrigin, contentOrigin),
+        responseHeadersPolicy: contentHeaders,
         trustedKeyGroups: [keyGroup],
         compress: true,
+      },
+      // リンクプレビューの画像だけは署名なしで開ける。Slack・Teams・X のクローラーは
+      // 署名を持たずに og:image を取りに来るため。置くのは全ページ共通のカード画像1枚だけで、
+      // ページの中身はここに置かない（publish が og/ へ書くのは assets/og-card.jpg のみ）。
+      additionalBehaviors: {
+        'og/*': {
+          origin: contentBucketOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          responseHeadersPolicy: contentHeaders,
+          compress: true,
+        },
       },
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
