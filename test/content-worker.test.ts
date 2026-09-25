@@ -126,13 +126,22 @@ test('rejects non-GET methods', async () => {
 test('serves the link preview image without a signature while other paths require signature', async () => {
   const { env, bucket } = fixture();
   bucket.put('og/card.jpg', { body: 'fake-image-bytes', contentType: 'image/jpeg' });
+  bucket.put('og/private.html', { body: 'secret', contentType: 'text/html; charset=utf-8' });
+  bucket.put('og/other.jpg', { body: 'other', contentType: 'image/jpeg' });
+
+  // og/card.jpg は署名無しで 200
   const response = await contentWorker.fetch(new Request(`${CONTENT}/og/card.jpg`), env);
   assert.equal(response.status, 200);
   assert.equal(await response.text(), 'fake-image-bytes');
   assert.equal(response.headers.get('content-type'), 'image/jpeg');
 
-  // 通常のページは署名無しなら 403
+  // og/ 配下の別のファイルは署名無しなら 403
+  const privateOg = await contentWorker.fetch(new Request(`${CONTENT}/og/private.html`), env);
+  assert.equal(privateOg.status, 403);
+  const otherOg = await contentWorker.fetch(new Request(`${CONTENT}/og/other.jpg`), env);
+  assert.equal(otherOg.status, 403);
+
+  // 通常のページも署名無しなら 403
   const denied = await contentWorker.fetch(new Request(`${CONTENT}/pages/demo/index.html`), env);
   assert.equal(denied.status, 403);
 });
-

@@ -16,7 +16,7 @@ import { signUrl } from './sign.js';
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-const TYPES: Record<string, string> = {
+export const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -24,6 +24,8 @@ const TYPES: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.ico': 'image/x-icon',
 };
 
@@ -104,7 +106,7 @@ async function deleteKeys(client: S3Client, bucket: string, keys: string[]): Pro
  *   中身のハッシュで比べて差分だけを送り、消えたものだけを消す。
  *   バケットは SSE-S3 なので、単一パートで上げた分の ETag は中身の MD5 と一致する。
  */
-async function syncTree(client: S3Client, bucket: string, root: string): Promise<void> {
+export async function syncTree(client: S3Client, bucket: string, root: string): Promise<void> {
   const remote = await remoteObjects(client, bucket);
   const kept = new Set<string>();
   for (const relative of files(root)) {

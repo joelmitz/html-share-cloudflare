@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import type { BuiltPage } from '../src/bundle.js';
+import { ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { buildSite, type BuiltPage } from '../src/bundle.js';
 import type { HtmlShareConfig } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
-import { acquirePublishLock, buildOnly, matchingPages, share } from '../src/publish.js';
+import { TYPES, acquirePublishLock, buildOnly, matchingPages, share, syncTree } from '../src/publish.js';
 
 function fixture(pages: Array<{ slug: string; title: string; objectKey: string }>): { config: ReturnType<typeof loadConfig> } {
   const root = mkdtempSync(path.join(tmpdir(), 'html-share-publish-'));
@@ -154,4 +155,58 @@ test('buildOnly acquires the same lock', () => {
   const release = acquirePublishLock(config);
   assert.throws(() => buildOnly(config), /Another publish is in progress/);
   release();
+});
+
+test('includes jpeg in publish MIME types', () => {
+  assert.equal(TYPES['.jpg'], 'image/jpeg');
+  assert.equal(TYPES['.jpeg'], 'image/jpeg');
+});
+
+test('sets image/jpeg content type for bundled og/card.jpg on sync', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-publish-og-'));
+  writeFileSync(path.join(root, 'page.html'), '<!doctype html><html><head><title>Demo</title></head><body></body></html>');
+  const base: HtmlShareConfig = {
+    ownerEmail: 'owner@example.com',
+    cloudflare: {
+      accountId: '0123456789abcdef0123456789abcdef',
+      consoleDomain: 'console.example.com',
+      contentDomain: 'content.example.com',
+      consoleBucket: 'html-share-console',
+      contentBucket: 'html-share-content',
+      publicKeyPath: 'keys/public.pem',
+      privateKeyPath: 'keys/private.pem',
+    },
+    content: {
+      roots: ['.'],
+      pages: [{ path: 'page.html' }],
+      ownerLinkDays: 7,
+      maximumShareDays: 30,
+      maximumAssetBytes: 1024,
+      allowedInternalCidrs: [],
+      siteName: '#HTML共有くん',
+    },
+    configFile: path.join(root, 'html-share.config.yaml'),
+    baseDir: root,
+  };
+  const buildRoot = path.join(root, 'build');
+  buildSite(base, buildRoot);
+
+  const putCommands: Array<{ Key?: string; ContentType?: string }> = [];
+  const fakeClient = {
+    send: async (cmd: unknown) => {
+      if (cmd instanceof ListObjectsV2Command) {
+        return { Contents: [] };
+      }
+      if (cmd instanceof PutObjectCommand) {
+        putCommands.push(cmd.input);
+        return {};
+      }
+      return {};
+    },
+  } as unknown as S3Client;
+
+  await syncTree(fakeClient, 'test-bucket', path.join(buildRoot, 'content'));
+  const ogCard = putCommands.find((cmd) => cmd.Key === 'og/card.jpg');
+  assert.ok(ogCard, 'og/card.jpg must be uploaded');
+  assert.equal(ogCard.ContentType, 'image/jpeg');
 });

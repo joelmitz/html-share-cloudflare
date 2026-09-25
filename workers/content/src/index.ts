@@ -108,10 +108,18 @@ export default {
       return failure(env, 405, 'Method not allowed.');
     }
     const url = new URL(request.url);
-    // リンクプレビューの画像だけは署名なしで開ける。Slack・Teams・X のクローラーは
-    // 署名を持たずに og:image を取りに来るため。置くのは全ページ共通のカード画像1枚だけで、
-    // ページの中身はここに置かない（publish が og/ へ書くのは assets/og-card.jpg のみ）。
-    const isPublicOg = url.pathname.startsWith('/og/');
+    let key: string;
+    try {
+      key = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    } catch {
+      return failure(env, 404, 'Not found.');
+    }
+    if (!key || key.includes('..')) return failure(env, 404, 'Not found.');
+
+    // リンクプレビューの画像（og/card.jpg）だけは署名なしで開ける。Slack・Teams・X のクローラーは
+    // 署名を持たずに og:image を取りに来るため。公開対象は厳密に単一キー og/card.jpg のみとし、
+    // og/ 配下の他のキーや通常ページは署名検証を要求する。
+    const isPublicOg = key === 'og/card.jpg';
     if (!isPublicOg) {
       const expiresText = url.searchParams.get('e') ?? '';
       const cidrParam = url.searchParams.get('i') ?? '';
@@ -139,13 +147,6 @@ export default {
         }
       }
     }
-    let key: string;
-    try {
-      key = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-    } catch {
-      return failure(env, 404, 'Not found.');
-    }
-    if (!key || key.includes('..')) return failure(env, 404, 'Not found.');
     const object = await env.CONTENT.get(key);
     if (!object) return failure(env, 404, 'Not found.');
     const headers = securityHeaders(env, object.httpMetadata?.contentType ?? 'application/octet-stream');
