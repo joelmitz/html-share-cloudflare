@@ -122,3 +122,17 @@ test('rejects non-GET methods', async () => {
   const response = await contentWorker.fetch(new Request(signed, { method: 'POST', body: 'x' }), env);
   assert.equal(response.status, 405);
 });
+
+test('serves the link preview image without a signature while other paths require signature', async () => {
+  const { env, bucket } = fixture();
+  bucket.put('og/card.jpg', { body: 'fake-image-bytes', contentType: 'image/jpeg' });
+  const response = await contentWorker.fetch(new Request(`${CONTENT}/og/card.jpg`), env);
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), 'fake-image-bytes');
+  assert.equal(response.headers.get('content-type'), 'image/jpeg');
+
+  // 通常のページは署名無しなら 403
+  const denied = await contentWorker.fetch(new Request(`${CONTENT}/pages/demo/index.html`), env);
+  assert.equal(denied.status, 403);
+});
+

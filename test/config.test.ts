@@ -89,4 +89,9 @@ test('defaults the link preview name and rejects unsafe image URLs', () => {
 
   writeFileSync(config, `${base}\n  ogImageUrl: "/relative/og.png"\n`);
   assert.throws(() => loadConfig(config), /must be an absolute https URL/);
+  // false（または none）で画像を出さない。省略時の undefined は「同梱の画像を使う」。
+  writeFileSync(config, `${base}\n  ogImageUrl: false\n`);
+  assert.equal(loadConfig(config).content.ogImageUrl, false);
+  writeFileSync(config, `${base}\n  ogImageUrl: none\n`);
+  assert.equal(loadConfig(config).content.ogImageUrl, false);
 });

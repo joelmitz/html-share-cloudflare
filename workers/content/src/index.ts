@@ -108,29 +108,35 @@ export default {
       return failure(env, 405, 'Method not allowed.');
     }
     const url = new URL(request.url);
-    const expiresText = url.searchParams.get('e') ?? '';
-    const cidrParam = url.searchParams.get('i') ?? '';
-    const signatureParam = url.searchParams.get('s') ?? '';
-    if (!/^\d{1,12}$/.test(expiresText) || !signatureParam) {
-      return failure(env, 403, 'This URL is missing its signature.');
-    }
-    if (Number(expiresText) <= Math.floor(Date.now() / 1000)) {
-      return failure(env, 403, 'This URL has expired.');
-    }
-    const signature = base64UrlToBytes(signatureParam);
-    if (!signature) return failure(env, 403, 'This URL has an invalid signature.');
-    const verified = await crypto.subtle.verify(
-      'RSASSA-PKCS1-v1_5',
-      await publicKey(env),
-      signature,
-      encoder.encode(`${url.pathname}\n${expiresText}\n${cidrParam}`),
-    );
-    if (!verified) return failure(env, 403, 'This URL has an invalid signature.');
-    if (cidrParam) {
-      const cidrs = decodeCidrs(cidrParam);
-      const clientIp = request.headers.get('cf-connecting-ip') ?? '';
-      if (!cidrs || !ipInCidrs(clientIp, cidrs)) {
-        return failure(env, 403, 'This URL is limited to the allowed network.');
+    // リンクプレビューの画像だけは署名なしで開ける。Slack・Teams・X のクローラーは
+    // 署名を持たずに og:image を取りに来るため。置くのは全ページ共通のカード画像1枚だけで、
+    // ページの中身はここに置かない（publish が og/ へ書くのは assets/og-card.jpg のみ）。
+    const isPublicOg = url.pathname.startsWith('/og/');
+    if (!isPublicOg) {
+      const expiresText = url.searchParams.get('e') ?? '';
+      const cidrParam = url.searchParams.get('i') ?? '';
+      const signatureParam = url.searchParams.get('s') ?? '';
+      if (!/^\d{1,12}$/.test(expiresText) || !signatureParam) {
+        return failure(env, 403, 'This URL is missing its signature.');
+      }
+      if (Number(expiresText) <= Math.floor(Date.now() / 1000)) {
+        return failure(env, 403, 'This URL has expired.');
+      }
+      const signature = base64UrlToBytes(signatureParam);
+      if (!signature) return failure(env, 403, 'This URL has an invalid signature.');
+      const verified = await crypto.subtle.verify(
+        'RSASSA-PKCS1-v1_5',
+        await publicKey(env),
+        signature,
+        encoder.encode(`${url.pathname}\n${expiresText}\n${cidrParam}`),
+      );
+      if (!verified) return failure(env, 403, 'This URL has an invalid signature.');
+      if (cidrParam) {
+        const cidrs = decodeCidrs(cidrParam);
+        const clientIp = request.headers.get('cf-connecting-ip') ?? '';
+        if (!cidrs || !ipInCidrs(clientIp, cidrs)) {
+          return failure(env, 403, 'This URL is limited to the allowed network.');
+        }
       }
     }
     let key: string;

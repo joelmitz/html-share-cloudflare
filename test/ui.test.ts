@@ -191,3 +191,9 @@ test('does not ship the discarded simplified dashboard files', () => {
     assert.throws(() => readFileSync(path.join(root, 'web', 'app', file), 'utf8'));
   }
 });
+
+test('serves only the link preview image without a signature', () => {
+  const contentWorker = readFileSync(path.join(root, 'workers', 'content', 'src', 'index.ts'), 'utf8');
+  assert.match(contentWorker, /isPublicOg = url\.pathname\.startsWith\('\/og\/'\)/);
+  assert.match(contentWorker, /if \(!isPublicOg\) \{[\s\S]*?This URL is missing its signature/);
+});

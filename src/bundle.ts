@@ -220,11 +220,36 @@ function defaultGroup(page: PageConfig): string {
   return parent && parent !== '.' ? parent : 'pages';
 }
 
+/** 同梱のカード画像を置く場所。配信側はこのパスだけ署名なしで開ける（infra の og/*）。 */
+export const OG_CARD_KEY = 'og/card.jpg';
+
+/**
+ * リンクプレビューの画像URLを決める。
+ *
+ *   ogImageUrl を書いていなければ、同梱の画像を配信先の /og/card.jpg へ置いて使う。
+ *   配信面は署名付きURLでしか開けないが、og/* だけは署名なしで開ける設定にしてあるので、
+ *   Slack や X のクローラーも取りに来られる。
+ *   末尾の ?v= は画像の中身から作る。SNSは画像をURLの文字列で覚えるので、
+ *   これが無いと画像を差し替えても古いカードが出続ける。
+ */
+function resolveOgImage(config: HtmlShareConfig, contentRoot: string): string | undefined {
+  const configured = config.content.ogImageUrl;
+  if (configured === false) return undefined;
+  if (configured) return configured;
+  const card = readFileSync(path.join(packageRoot(), 'assets', 'og-card.jpg'));
+  const target = path.join(contentRoot, OG_CARD_KEY);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, card);
+  const version = createHash('sha256').update(card).digest('hex').slice(0, 8);
+  return `https://${config.cloudflare.contentDomain}/${OG_CARD_KEY}?v=${version}`;
+}
+
 export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildManifest {
   const roots = validatedRoots(config);
   const contentRoot = path.join(buildRoot, 'content');
   rmSync(buildRoot, { recursive: true, force: true });
   mkdirSync(contentRoot, { recursive: true });
+  const ogImageUrl = resolveOgImage(config, contentRoot);
   const used = new Set<string>();
   const pages = config.content.pages.map((page) => {
     const source = pagePath(config, page);
@@ -232,7 +257,7 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
     const html = bundleHtml(sourceReal, roots, config.content.maximumAssetBytes, {
       siteName: config.content.siteName,
       title: page.title,
-      imageUrl: config.content.ogImageUrl,
+      imageUrl: ogImageUrl,
       cardType: config.content.ogCardType,
     });
     const fallback = path.basename(source, path.extname(source));

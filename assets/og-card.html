@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>#HTML共有くん — リンクプレビュー画像の版下</title>
+<!--
+  共有リンクをSlack・Teams・Xへ貼ったときに出る、全ページ共通のカード画像の版下。
+  焼いた画像は assets/og-card.jpg（600x600）。publish が配信先の /og/card.jpg へ置く。
+
+  ■ ページの中身を推測させる文字を足さない
+    この1枚がすべての共有リンクに出るので、出してよいのはアプリ名だけ。
+
+  ■ なぜ正方形で、要素を中央の横帯に集めるか
+    twitter:card=summary と正方形の組み合わせで、各媒体のいちばん小さいカードに収まる。
+    ただしスマホ版のSlackは同じ画像を横長に切り抜いて大きく出すので、
+    上下いっぱいに文字を積むと詰まって見える。アプリ名は1行にして上下に余白を残す。
+
+  ■ 焼き直し
+    600x600 のブラウザでこのファイルを開き、そのまま画面を JPEG で保存する。
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:600px;height:600px}
+  body{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;
+    background:linear-gradient(135deg,#0e0d6a 0%,#0a4695 48%,#00a3e0 100%);
+    color:#fff;font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+  }
+  svg{display:block;width:132px;height:132px;stroke:#fff;stroke-width:6;fill:none;
+      stroke-linecap:round;stroke-linejoin:round;opacity:.95}
+  .t{font-size:54px;font-weight:700;line-height:1;white-space:nowrap;text-align:center;letter-spacing:.01em}
+</style>
+</head>
+<body>
+  <svg viewBox="0 0 100 100" aria-hidden="true">
+    <path d="M26 12h34l18 18v58a4 4 0 0 1-4 4H26a4 4 0 0 1-4-4V16a4 4 0 0 1 4-4z"/>
+    <path d="M60 12v18h18"/><path d="M36 52h28M36 68h28"/>
+  </svg>
+  <div class="t"># HTML共有くん</div>
+</body>
+</html>
