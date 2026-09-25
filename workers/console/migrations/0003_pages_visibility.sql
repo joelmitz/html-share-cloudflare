@@ -1,4 +1,4 @@
--- share-internal.mk7.jp（Cloudflare Access限定領域）対応（Issue: share-internal 新設）
+-- ページの公開範囲（visibility: public / internal）対応
 -- 適用: wrangler d1 migrations apply html-share-review --remote --config workers/console/wrangler.jsonc
 
 -- DEFAULT 'public' は既存行（このマイグレーション適用前に commit された全ページ）の実態に
