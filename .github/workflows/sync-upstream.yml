@@ -1,6 +1,6 @@
 name: Sync fork with upstream
 
-# joelmitz/html-share-cloudflare の main を minorun365/html-share（正本）へ追従させる。
+# joelmitz/html-share-cloudflare の main とリリースタグを minorun365/html-share（正本）へ追従させる。
 # joelmitz/agmsg の同名ワークフローと同じ設計（2026-08-30 移植）。
 #
 # ★実装は git ではなく GitHub の fork-sync API（POST /repos/{repo}/merge-upstream）
@@ -73,6 +73,22 @@ jobs:
             echo "::error::main is still ${missing} commit(s) behind upstream after sync"
             exit 1
           fi
+
+      # main の同期が確認できた後だけタグを追加する。同名タグは上書きしない。
+      # SYNC_UPSTREAM_TOKEN は既に fork-sync API で使う workflow 権限付きトークン。
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Sync upstream tags
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git remote add upstream https://github.com/minorun365/html-share.git
+          bash scripts/sync-upstream-tags.sh origin upstream
 
       # ★メール通知に依存しない検知経路（agmsg fork の教訓を移植）。
       # 同題の open issue があればコメント追記に留め、毎日 issue が増えないようにする。

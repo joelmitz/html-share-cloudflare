@@ -19,4 +19,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - run: bash test/sync-upstream-tags.sh
       - run: npm run build
