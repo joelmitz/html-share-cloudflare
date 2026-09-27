@@ -206,6 +206,7 @@ function ownerManifest(manifest: BuildManifest, config: HtmlShareConfig): object
         days: config.content.ownerLinkDays,
       }),
     })),
+    shelf: manifest.shelf,
   };
 }
 

@@ -1,6 +1,6 @@
 // D1Database 互換の最小スタブ。node:sqlite（実SQLite）で実行するため、
 // 条件付きUPDATE・changes()・トランザクションの意味論を本物と同じに検証できる。
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -56,11 +56,10 @@ export class D1Stub {
 
   constructor(readonly options: D1StubOptions = {}) {
     this.database = new DatabaseSync(':memory:');
-    const migration = readFileSync(
-      path.resolve(import.meta.dirname, '..', '..', 'workers', 'console', 'migrations', '0001_init.sql'),
-      'utf8',
-    );
-    this.database.exec(migration);
+    const migrationDir = path.resolve(import.meta.dirname, '..', '..', 'workers', 'console', 'migrations');
+    for (const file of readdirSync(migrationDir).filter((name) => /^\d+.*\.sql$/.test(name)).sort()) {
+      this.database.exec(readFileSync(path.join(migrationDir, file), 'utf8'));
+    }
   }
 
   prepare(sql: string): StubPreparedStatement {

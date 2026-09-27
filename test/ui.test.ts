@@ -16,8 +16,24 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.match(dashboard, /未読に戻す/);
   assert.match(dashboard, /groupByStream/);
   assert.match(dashboard, /const STREAM_STAR_PREFIX = '@stream:'/, 'カードスターを個別ページと区別する');
-  assert.match(dashboard, /head\.append\(count, last, streamStarButton\(stream\)\)/, 'カード見出しにスターを置く');
-  assert.match(dashboard, /if \(isStreamStarred\(stream\)\)[\s\S]{0,160}pinnedStreams\.push\(stream\)/, 'カード全体をスター領域へ移す');
+  assert.match(dashboard, /row\.querySelector\('\.row time'\)\?\.before\(shelfPinButton\(stream\)\)/, '1件だけのテーマの行にもピンを置く（時刻と☆の列は他の行と揃える）');
+  assert.match(dashboard, /head\.append\(count, shelfPinButton\(stream\), streamStarButton\(stream\)\)/, 'カード見出しに進行中へ入れるボタンとスターを置く');
+  assert.doesNotMatch(dashboard, /className = 'tlast'/, 'カード見出しに更新時刻を置かない（各行にあるため）');
+  assert.match(dashboard, /\.tcount \{[^}]*margin-left: auto;[^}]*white-space: nowrap;/, '件数は折り返さず右へ寄せる');
+  assert.match(dashboard, /function shelfPinButton[\s\S]{0,1200}aria-pressed[\s\S]{0,1200}if \(item\) doneShelfItem\(item\);\s*else addShelfStream\(stream\.key\);/, '進行中へ入れるボタンは登録済みなら外し、未登録なら既存の追加処理で足す');
+  assert.match(dashboard, /Lucide の pin[^\n]*ISC License/, '押しピンの出典とライセンスを残す');
+  assert.match(dashboard, /class="head"\/><\/svg>/, '押しピンの頭部に塗り分け用の class を付ける');
+  assert.match(dashboard, /\.shelf-pin svg \{[^}]*transform: rotate\(35deg\);/, '押しピンは35度傾ける');
+  assert.match(dashboard, /\.shelf-pin\.on \.head \{ fill: currentColor; \}/, '登録済みは頭部を青で塗る');
+  assert.match(dashboard, /\.shelf-pin \{[^}]*border-radius: \.45rem;[^}]*color: var\(--ink-faint\);/, '角丸と色を☆に揃える');
+  assert.match(dashboard, /\.shelf-pin:active \{ transform: scale\(\.82\); \}/, '押したときの縮みを☆に揃える');
+  assert.match(dashboard, /b\.title = on \? '進行中から外す' : '進行中に入れる';\s*b\.setAttribute\('aria-label'/, '進行中へ入れるボタンに title と aria-label を付ける');
+  assert.match(dashboard, /if \(isStreamStarred\(stream\)\)[\s\S]{0,160}pinnedStreams\.push\(stream\)/, 'カードのスターはテーマ丸ごとスター段へ移す');
+  assert.match(dashboard, /stream\.pages\.filter\(isStarred\)[\s\S]{0,200}rest\.push\(\.\.\.stream\.pages\.filter\(\(page\) => !isStarred\(page\)\)\)/, 'ページのスターはそのページだけスター段へ移す');
+  assert.match(dashboard, /for \(const stream of groupByStream\(items\)\)/, 'チップで絞った結果にも同じ並べ方をする');
+  assert.match(dashboard, /appendDateGroup\('スター', pinnedStreams\)/, 'スター段を一覧の先頭に出す');
+  assert.doesNotMatch(dashboard, /chip\('★ スター'/, 'スターをチップ列に置かない');
+  assert.doesNotMatch(dashboard, /STAR_FILTER/, 'スター用の絞り込み状態を持たない');
   assert.match(dashboard, /削除済み/);
   assert.match(dashboard, /api\/owner\/shares/);
   assert.match(list, /function markUnread/);
@@ -39,11 +55,61 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.match(dashboard, /function refreshInboxDot/);
   assert.match(dashboard, /\/api\/owner\/reviews/);
   assert.match(dashboard, /function configureShareOptions/);
+  assert.doesNotMatch(dashboard, /function appendShelf/, '進行中の段は一覧に出さない');
+  assert.match(dashboard, /<nav class="chips" id="chips" aria-label="一覧の絞り込み"><\/nav>\s*<\/header>/, '絞り込みチップはヘッダーの2段目に置く');
+  assert.match(dashboard, /const SHELF_DONE_KEY = 'mb_shelf_done'/);
+  assert.match(dashboard, /shelfDone: \[\.\.\.shelfDone\]/, '✕で下ろした印を本人設定として同期する');
+  assert.match(dashboard, /let shelfFilter = null;/);
+  assert.match(dashboard, /chip\('すべて', \{ on: shelfFilter === null/, '「すべて」は絞り込みなしで選択状態');
+  assert.match(dashboard, /const select = \(key\) => \(\) => \{ shelfFilter = shelfFilter === key \? null : key; renderHome\(\); \};/, 'チップは押すたびに絞り込みを切り替える');
+  assert.match(dashboard, /onClick: select\(item\.stream\),\s*onDone: \(\) => doneShelfItem\(item\)/, 'テーマのチップで絞り込み、選択中の✕で棚から下ろす');
+  assert.match(dashboard, /if \(onDone && on\) \{/, '✕は選択中のチップにだけ出す');
+  assert.match(dashboard, /window\.open\(item\.url, '_blank', 'noopener,noreferrer'\)/, 'リンクのチップは新しいタブで開く');
+  assert.match(dashboard, /\.chip\.link \.n::after \{ content: " ↗"; \}/);
+  assert.match(dashboard, /const text = diff < 0 \? '昨日まで' : diff === 0 \? '今日' : diff === 1 \? '明日' : `\$\{diff\}日`;/, 'チップの締切は短い表記');
+  assert.match(dashboard, /if \(showingTrash \|\| filterText\.trim\(\)\) return;/, '削除済みと検索中はチップを出さない');
+  assert.match(dashboard, /body\.searching \.chips \{ display: none; \}/);
+  assert.match(dashboard, /if \(open && shelfFilter !== null\) \{\s*shelfFilter = null;/, '検索を開いたら絞り込みを解除する');
+  assert.match(dashboard, /@media \(max-width: 46rem\) \{\s*[^\n]*\n\s*\.chips \{ flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;/, 'スマホ幅はチップを横スクロールにする');
+  assert.match(dashboard, /id="filter-note" hidden/, '絞り込み中の1行を置く');
+  assert.match(dashboard, /aria-pressed/);
+  assert.match(dashboard, /visiblePages\(\)\.filter\(\(page\) => pageStream\(page\) === shelfFilter\)/, '一覧を選んだテーマに絞る');
+  assert.match(dashboard, /filterText\.trim\(\) === '' && shelfFilter === null && \(hidden > 0 \|\| expanded\)/, '絞り込み中は「他N件」を出さない');
   assert.match(dashboard, /manifest\.internalSharing/);
   assert.match(dashboard, /manifest\.maximumShareDays/);
   assert.match(shell, /function configureShareOptions/);
   assert.match(shell, /manifest\.internalSharing/);
   assert.match(shell, /manifest\.maximumShareDays/);
+});
+
+test('lets the owner add and remove in-progress items from the theme card pin', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  // チップ列の鉛筆・編集モード・「＋ 追加」と候補パネルは廃止。足し引きはカード見出しの押しピンに一本化
+  assert.doesNotMatch(dashboard, /chipEditing|chipPicking/, '編集モードの状態を持たない');
+  assert.doesNotMatch(dashboard, /chip-picker|picker-item|renderChipPicker/, '追加の候補パネルを持たない');
+  assert.doesNotMatch(dashboard, /\.chip\.edit|chip ghost|＋ 追加'/, '鉛筆と「＋ 追加」のチップを持たない');
+  assert.doesNotMatch(dashboard, /\.chips\.editing/, '編集中の折り返し指定を持たない');
+  assert.match(dashboard, /else addShelfStream\(stream\.key\);/, 'カード見出しの押しピンで進行中へ足す');
+  assert.match(dashboard, /onClick: \(\) => window\.open\(item\.url, '_blank', 'noopener,noreferrer'\),\s*onDone: \(\) => doneShelfItem\(item\)/);
+  // ✕：台帳の項目は shelfDone へ、自分で足したテーマは shelfAdded から消す
+  assert.match(dashboard, /if \(item\.added\) shelfAdded = shelfAdded\.filter\(\(key\) => key !== item\.stream\);\s*else shelfDone\.add\(item\.id\);/);
+  // 追加：台帳にあって下ろしていたら戻し、無ければ shelfAdded に足す
+  assert.match(dashboard, /if \(ledger && shelfDone\.has\(ledger\.id\)\) shelfDone\.delete\(ledger\.id\);\s*else if \(!ledger && !shelfAdded\.includes\(streamKey\)\) shelfAdded\.push\(streamKey\);/);
+  // 並び：台帳の項目のあとに自分で足したテーマ
+  assert.match(dashboard, /return \[\.\.\.ledger, \.\.\.added\];/);
+  // 保存：本人設定に載せ、端末間は保存値を正とする（和集合にしない）
+  assert.match(dashboard, /const SHELF_ADDED_KEY = 'mb_shelf_added'/);
+  assert.match(dashboard, /shelfDone: \[\.\.\.shelfDone\],\s*shelfAdded,/, '足したテーマも本人設定として同期する');
+  assert.match(dashboard, /shelfDone = new Set\(\(saved\.shelfDone \?\? \[\]\)/);
+  assert.match(dashboard, /shelfAdded = \[\.\.\.new Set\(\(saved\.shelfAdded \?\? \[\]\)/);
+  assert.doesNotMatch(dashboard, /\.\.\.remoteShelf, \.\.\.shelfDone/, '進行中の印を和集合で合わせない');
+});
+
+test('does not show a global update time in the toolbar', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  // 最新の更新時刻は一覧の先頭行に出ているので、右上には置かない
+  assert.doesNotMatch(dashboard, /brand-meta|brandMeta|setStamp/);
+  assert.doesNotMatch(dashboard, /ページ ／ \$\{fmtDateTime/, 'ページ件数は出さない');
 });
 
 test('loads iframe pages without adding child-frame history entries', () => {

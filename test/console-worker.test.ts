@@ -270,6 +270,8 @@ test('preferences round-trip through D1', async () => {
         recentSources: ['repo-a'],
         hiddenSources: [],
         readMarks: { 'repo-a': { v: null, at: '2026-08-15T01:00:00.000Z' } },
+        shelfDone: ['plan'],
+        shelfAdded: ['repo-a'],
       }),
     }), f.env, f.context);
   assert.equal(saved.status, 200);
@@ -280,6 +282,20 @@ test('preferences round-trip through D1', async () => {
   assert.equal(body.exists, true);
   assert.deepEqual(body.starredSources, ['repo-a']);
   assert.deepEqual(body.readMarks, { 'repo-a': { v: null, at: '2026-08-15T01:00:00.000Z' } });
+  assert.deepEqual(body.shelfDone, ['plan']);
+  assert.deepEqual(body.shelfAdded, ['repo-a']);
+
+  const oldClient = await consoleWorker.fetch(
+    new Request(`${CONSOLE}/api/owner/preferences`, {
+      method: 'PUT', headers: ownerHeaders(),
+      body: JSON.stringify({ starredSources: [], recentSources: [], hiddenSources: [], readMarks: {} }),
+    }), f.env, f.context);
+  assert.equal(oldClient.status, 200);
+  const preserved = await consoleWorker.fetch(
+    new Request(`${CONSOLE}/api/owner/preferences`, { headers: ownerHeaders() }), f.env, f.context);
+  const oldBody = await preserved.json() as any;
+  assert.deepEqual(oldBody.shelfDone, ['plan']);
+  assert.deepEqual(oldBody.shelfAdded, ['repo-a']);
 });
 
 test('owner share URLs interoperate with the content worker', async () => {

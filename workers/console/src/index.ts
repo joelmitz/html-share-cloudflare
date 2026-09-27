@@ -102,6 +102,20 @@ function cleanSourceList(value: unknown, name: string, maximum: number): string[
   return [...new Set(value.map((item) => clean(item, name, 500, true)))];
 }
 
+export function cleanShelfDone(value: unknown, stored: unknown): string[] {
+  if (value === undefined) {
+    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : [];
+  }
+  return cleanSourceList(value, 'shelfDone', 300);
+}
+
+export function cleanShelfAdded(value: unknown, stored: unknown): string[] {
+  if (value === undefined) {
+    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : [];
+  }
+  return cleanSourceList(value, 'shelfAdded', 100);
+}
+
 function titleFromBody(text: string): string {
   const firstLine = text.split('\n').find((line) => line.trim()) ?? '';
   const trimmed = firstLine.trim();
@@ -362,6 +376,8 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
         recentSources: row ? JSON.parse(row.recent_sources) : [],
         hiddenSources: row ? JSON.parse(row.hidden_sources) : [],
         readMarks: row?.read_marks ? JSON.parse(row.read_marks) : null,
+        shelfDone: row ? JSON.parse(row.shelf_done) : [],
+        shelfAdded: row ? JSON.parse(row.shelf_added) : [],
         updatedAt: row?.updated_at ?? null,
       });
     }
@@ -371,16 +387,22 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
       const recentSources = cleanSourceList(body.recentSources ?? [], 'recentSources', 6);
       const hiddenSources = cleanSourceList(body.hiddenSources ?? [], 'hiddenSources', 500);
       const readMarks = cleanReadMarks(body.readMarks ?? {}, 800);
+      const stored = body.shelfDone === undefined || body.shelfAdded === undefined
+        ? await env.DB.prepare('SELECT shelf_done, shelf_added FROM preferences WHERE id = 1').first<Record<string, string>>()
+        : null;
+      const shelfDone = cleanShelfDone(body.shelfDone, stored ? JSON.parse(stored.shelf_done) : undefined);
+      const shelfAdded = cleanShelfAdded(body.shelfAdded, stored ? JSON.parse(stored.shelf_added) : undefined);
       const updatedAt = new Date().toISOString();
       await env.DB.prepare(
-        `INSERT INTO preferences (id, starred_sources, recent_sources, hidden_sources, read_marks, updated_at)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT (id) DO UPDATE SET starred_sources = ?1, recent_sources = ?2, hidden_sources = ?3, read_marks = ?4, updated_at = ?5`,
+        `INSERT INTO preferences (id, starred_sources, recent_sources, hidden_sources, read_marks, shelf_done, shelf_added, updated_at)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT (id) DO UPDATE SET starred_sources = ?1, recent_sources = ?2, hidden_sources = ?3,
+           read_marks = ?4, shelf_done = ?5, shelf_added = ?6, updated_at = ?7`,
       ).bind(
         JSON.stringify(starredSources), JSON.stringify(recentSources), JSON.stringify(hiddenSources),
-        JSON.stringify(readMarks), updatedAt,
+        JSON.stringify(readMarks), JSON.stringify(shelfDone), JSON.stringify(shelfAdded), updatedAt,
       ).run();
-      return json(env, 200, { starredSources, recentSources, hiddenSources, readMarks, updatedAt });
+      return json(env, 200, { starredSources, recentSources, hiddenSources, readMarks, shelfDone, shelfAdded, updatedAt });
     }
     if (verb === 'POST' && path === '/api/owner/shares') {
       const body = await parseBody(request);

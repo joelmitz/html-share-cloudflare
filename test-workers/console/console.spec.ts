@@ -176,3 +176,25 @@ test('owner shares return a signed URL in the expected format', async () => {
   const internalUrl = new URL((await internal.json() as any).url);
   expect(internalUrl.searchParams.get('i')).toMatch(/^[A-Za-z0-9_-]+$/);
 });
+
+test('shelf preferences survive an older client PUT in real D1', async () => {
+  const headers = await ownerHeaders();
+  const save = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, {
+    method: 'PUT', headers,
+    body: JSON.stringify({ shelfDone: ['plan'], shelfAdded: ['theme'] }),
+  });
+  expect(save.status).toBe(200);
+
+  const older = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, {
+    method: 'PUT', headers,
+    body: JSON.stringify({ starredSources: ['page'] }),
+  });
+  expect(older.status).toBe(200);
+
+  const loaded = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, { headers });
+  expect(loaded.status).toBe(200);
+  const preferences = await loaded.json() as any;
+  expect(preferences.shelfDone).toEqual(['plan']);
+  expect(preferences.shelfAdded).toEqual(['theme']);
+  expect(preferences.starredSources).toEqual(['page']);
+});
