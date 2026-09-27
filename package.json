@@ -1,6 +1,6 @@
 {
   "name": "@joelmitz/html-share-cloudflare",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-hosted HTML dashboard for Claude Code results (Cloudflare fork)",
   "type": "module",
   "private": true,

@@ -74,20 +74,26 @@ jobs:
             exit 1
           fi
 
-      # main の同期が確認できた後だけタグを追加する。同名タグは上書きしない。
+      # main の同期が確認できた後だけ version とタグを更新する。
       # SYNC_UPSTREAM_TOKEN は既に fork-sync API で使う workflow 権限付きトークン。
       - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Sync upstream tags
+      - name: Sync upstream package version
         env:
           GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_TOKEN }}
         run: |
           set -euo pipefail
           gh auth setup-git
           git remote add upstream https://github.com/minorun365/html-share.git
+          bash scripts/sync-upstream-version.sh origin upstream
+      - name: Sync upstream tags
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_TOKEN }}
+        run: |
+          set -euo pipefail
           bash scripts/sync-upstream-tags.sh origin upstream
 
       # ★メール通知に依存しない検知経路（agmsg fork の教訓を移植）。
