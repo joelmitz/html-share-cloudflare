@@ -69,7 +69,7 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.match(dashboard, /if \(item\?\.url\) \{[\s\S]{0,120}a\.target = '_blank';\s*a\.rel = 'noopener';\s*a\.textContent = '元のスレッド ↗';/, '絞り込み中の見出しに元のスレッドへのリンクを添える');
   assert.match(dashboard, /liveShelf\(\)\.find\(\(candidate\) => shelfKey\(candidate\) === shelfFilter\)/, '見出しは絞り込みのキーで項目を探す');
   assert.match(dashboard, /const shelfStreams = new Set\(liveShelf\(\)\.map\(shelfKey\)\);/, 'ページの無い項目の絞り込みも棚にある間は保つ');
-  assert.match(dashboard, /const onShelf = new Set\(\(meta\?\.shelf \?\? \[\]\)\.map\(\(item\) => item\.stream\)/, '台帳のテーマは下ろした後も自分で足したテーマとして復活させない');
+  assert.match(dashboard, /const onShelf = new Set\(\(meta\?\.shelf \?\? \[\]\)\.filter\(\(item\) => !isExpiredLedger\(item\)\)\s*\.map\(\(item\) => item\.stream\)/, '台帳のテーマは下ろした後も自分で足したテーマとして復活させない（期限を全部過ぎた項目だけは足し直せる）');
   assert.match(dashboard, /chip: page\.streamChip \?\? pageStreamLabel\(page\)/, 'テーマの短い名前はチップ名から取り、無ければ見出しを使う');
   assert.match(dashboard, /title: summary\.chip, stream: key/, '自分で足したテーマのチップはチップ名で出す');
   assert.match(dashboard, /if \(onDone && on\) \{/, '✕は選択中のチップにだけ出す');
@@ -104,7 +104,8 @@ test('lets the owner add and remove in-progress items from the theme card pin', 
   // 追加：台帳にあって下ろしていたら戻し、無ければ shelfAdded に足す
   assert.match(dashboard, /if \(ledger && shelfDone\.has\(ledger\.id\)\) shelfDone\.delete\(ledger\.id\);\s*else if \(!ledger && !shelfAdded\.includes\(streamKey\)\) shelfAdded\.push\(streamKey\);/);
   // 並び：台帳の項目のあとに自分で足したテーマ
-  assert.match(dashboard, /return \[\.\.\.ledger, \.\.\.added\];/);
+  // 台帳の項目と足したテーマを合わせて期限の近い順。期限の無いもの同士は元の並び（台帳 → 足した順）
+  assert.match(dashboard, /return \[\.\.\.ledger, \.\.\.added\]\.sort\(/);
   // 保存：本人設定に載せ、端末間は保存値を正とする（和集合にしない）
   assert.match(dashboard, /const SHELF_ADDED_KEY = 'mb_shelf_added'/);
   assert.match(dashboard, /shelfDone: \[\.\.\.shelfDone\],\s*shelfAdded,/, '足したテーマも本人設定として同期する');

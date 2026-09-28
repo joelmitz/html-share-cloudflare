@@ -24,13 +24,22 @@ export interface ShelfItemConfig {
   title?: string;
   stream?: string;
   url?: string;
-  /** 締切（YYYY-MM-DD）。翌日を過ぎると棚から自動で消える */
+  /**
+   * url だけの項目の締切（YYYY-MM-DD）。翌日を過ぎると棚から自動で消える。
+   * テーマの項目は content.streamDues が正本で、そちらがあれば due は使わない
+   */
   due?: string;
   note?: string;
   /** url 項目を棚へ載せた日（YYYY-MM-DD）。締切なしの並び順と「◯日動きなし」に使う */
   added?: string;
   /** 書いておくと棚に出さない */
   done: boolean;
+}
+
+/** テーマの期限の1件。what は「リハーサル」「本番」のような何の日か */
+export interface StreamDue {
+  date: string;
+  what: string | null;
 }
 
 export interface HtmlShareConfig {
@@ -63,6 +72,11 @@ export interface HtmlShareConfig {
     ogCardType?: 'summary' | 'summary_large_image';
     /** 進行中の棚。省略すると棚を出さない */
     shelf?: ShelfItemConfig[];
+    /**
+     * テーマキー → 期限の一覧。棚の項目にも、画面の押しピンで足したテーマにも同じ期限が出る。
+     * 画面が今日以降でいちばん近い日を選ぶので、節目が複数あれば全部並べる
+     */
+    streamDues?: Record<string, StreamDue[]>;
   };
   configFile: string;
   baseDir: string;
@@ -121,6 +135,34 @@ function linkUrl(value: unknown, name: string): string {
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error(`${name} must use http or https`);
   return parsed.toString();
+}
+
+/**
+ * content.streamDues を読む。書式は { テーマキー: { 日付: 何の日 } }。日付だけの配列も受ける。
+ * 空の {} は「期限なし」として受け、日付順に並べ直す
+ */
+function streamDuesConfig(value: unknown): Record<string, StreamDue[]> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('content.streamDues must be a map of theme keys');
+  const out: Record<string, StreamDue[]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const name = `content.streamDues.${key}`;
+    const pairs: [unknown, unknown][] = raw === null || raw === undefined
+      ? []
+      : Array.isArray(raw)
+        ? raw.map((date) => [date, null])
+        : typeof raw === 'object'
+          ? Object.entries(raw as Record<string, unknown>)
+          : [[raw, null]];
+    out[key] = pairs
+      .map(([date, what]) => ({
+        date: isoDate(date, name) ?? '',
+        what: what === null || what === undefined || String(what).trim() === '' ? null : String(what).trim(),
+      }))
+      .filter((due) => due.date !== '')
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+  return out;
 }
 
 function shelfItems(value: unknown): ShelfItemConfig[] {
@@ -241,6 +283,7 @@ export function loadConfig(file?: string): HtmlShareConfig {
           ? undefined
           : (() => { throw new Error('content.ogCardType must be "summary" or "summary_large_image"'); })(),
       shelf: shelfItems(content.shelf),
+      streamDues: streamDuesConfig(content.streamDues),
     },
     configFile,
     baseDir: path.dirname(configFile),

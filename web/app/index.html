@@ -1199,7 +1199,8 @@ body.page-controls-hidden #page-actions {
 
   /** テーマを進行中へ足す。台帳にあって下ろしていた項目なら、下ろした印を外して締切ごと戻す */
   function addShelfStream(streamKey) {
-    const ledger = (meta?.shelf ?? []).find((item) => item.stream === streamKey);
+    // 期限を全部過ぎて画面から下りた台帳の項目は、無いものとして扱う（押しピンで足し直せる）
+    const ledger = (meta?.shelf ?? []).find((item) => item.stream === streamKey && !isExpiredLedger(item));
     if (ledger && shelfDone.has(ledger.id)) shelfDone.delete(ledger.id);
     else if (!ledger && !shelfAdded.includes(streamKey)) shelfAdded.push(streamKey);
     queuePreferenceSave();
@@ -1218,23 +1219,62 @@ body.page-controls-hidden #page-actions {
     }
     return map;
   }
+  /** JST の暦日（YYYY-MM-DD）を days 日ずらす */
+  function jstDay(days = 0) {
+    return new Date(Date.now() + 9 * 3600e3 + days * 86400e3).toISOString().slice(0, 10);
+  }
+
   /**
-   * いま進行中に並ぶ項目。台帳の項目（締切順）のあとに、自分で足したテーマを足した順で続ける。
+   * 期限の一覧から直近の1件を選ぶ。今日以降の最初の日、無ければ昨日の日（「昨日まで」と出す）。
+   * src/bundle.ts の nextDue と同じ規則。画面側で選ぶので、節目を過ぎた翌朝には次の日へ繰り上がる
+   */
+  function nextDue(dues, today = jstDay(0), yesterday = jstDay(-1)) {
+    const upcoming = dues.find((d) => d.date >= today);
+    if (upcoming) return upcoming;
+    return [...dues].reverse().find((d) => d.date === yesterday) ?? null;
+  }
+
+  /** 項目の期限。テーマの項目はテーマの期限（streamDues）が正本。台帳の項目か押しピンかを問わない */
+  function withDue(item) {
+    const dues = (item.stream && meta?.streamDues?.[item.stream])
+      ?? item.dues ?? (item.due ? [{ date: item.due, what: null }] : []);
+    const next = nextDue(dues);
+    return { ...item, due: next?.date ?? null, dueWhat: next?.what ?? null, hadDues: dues.length > 0 };
+  }
+
+  /** 期限を持っていたのに全部過ぎた台帳の項目 */
+  function isExpiredLedger(item) {
+    const d = withDue(item);
+    return d.hadDues && !d.due;
+  }
+
+  /**
+   * いま進行中に並ぶ項目。期限の近い順、期限の無いものは後ろ（台帳の項目 → 自分で足した順）。
    * 台帳のテーマの項目は、そのテーマのページが実在するものだけを出す
    */
   function liveShelf() {
     const ledger = (meta?.shelf ?? []).filter((item) => !shelfDone.has(item.id)
-      && (item.stream ? allPages.some((candidate) => candidate.slug === item.slug) : Boolean(item.url)));
+      && (item.stream ? allPages.some((candidate) => candidate.slug === item.slug) : Boolean(item.url)))
+      // 期限を全部過ぎた台帳の項目は、次の publish を待たずに下ろす
+      .filter((item) => !isExpiredLedger(item))
+      .map(withDue);
     // 台帳にあるテーマは、下ろした後も「自分で足したテーマ」として長い見出しで復活させない
-    const onShelf = new Set((meta?.shelf ?? []).map((item) => item.stream).filter(Boolean));
+    const onShelf = new Set((meta?.shelf ?? []).filter((item) => !isExpiredLedger(item))
+      .map((item) => item.stream).filter(Boolean));
     const summaries = streamSummaries();
+    // 自分で足したテーマは、期限を全部過ぎても外さない（数字だけ消える）
     const added = shelfAdded
       .filter((key) => !onShelf.has(key) && summaries.has(key))
       .map((key) => {
         const summary = summaries.get(key);
-        return { id: `@added:${key}`, title: summary.chip, stream: key, count: summary.count, last: summary.last, due: null, added: true };
+        return withDue({ id: `@added:${key}`, title: summary.chip, stream: key, count: summary.count, last: summary.last, added: true });
       });
-    return [...ledger, ...added];
+    // sort は安定なので、期限の無いもの同士は元の並び（台帳 → 足した順）のまま
+    return [...ledger, ...added].sort((a, b) => {
+      if (a.due && b.due) return a.due.localeCompare(b.due);
+      if (a.due || b.due) return a.due ? -1 : 1;
+      return 0;
+    });
   }
 
   /** 締切をチップ用に短くする（「今日」「明日」「5日」）。3日以内は強調 */
@@ -1309,7 +1349,7 @@ body.page-controls-hidden #page-actions {
     const b = document.createElement('b');
     b.textContent = item?.title ?? '';
     const parts = [];
-    if (item?.due) parts.push(shelfDueLabel(item.due).text);
+    if (item?.due) parts.push(`${shelfDueLabel(item.due).text}${item.dueWhat ? ` ${item.dueWhat}` : ''}`);
     if (item?.note) parts.push(item.note);
     parts.push(`${count}ページ`);
     note.append(b, document.createTextNode(`　${parts.join('・')}`));

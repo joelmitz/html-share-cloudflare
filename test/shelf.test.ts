@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { cleanShelfAdded, cleanShelfDone } from '../functions/review-handler.ts';
-import { buildShelf, chipWidth, resolveStreamChips, type BuiltPage } from '../src/bundle.js';
+import { buildShelf, chipWidth, liveDues, nextDue, resolveStreamChips, type BuiltPage } from '../src/bundle.js';
 
 function page(slug: string, stream: string, updatedAt: string, streamChip = stream): BuiltPage {
   return {
@@ -120,4 +121,42 @@ test('dedupes added themes, caps them at 100, and keeps stored ones when omitted
   assert.equal(cleanShelfAdded(Array.from({ length: 100 }, (_, i) => `s-${i}`), []).length, 100);
   assert.throws(() => cleanShelfAdded(Array.from({ length: 101 }, (_, i) => `s-${i}`), []), /shelfAdded is invalid/);
   assert.throws(() => cleanShelfAdded('a', []), /shelfAdded is invalid/);
+});
+
+test('takes theme deadlines from streamDues and rolls over to the next milestone', () => {
+  const pages = [page('lecture', 'lecture', '2026-01-10T00:00:00.000Z', '講義')];
+  const streamDues = {
+    lecture: [{ date: '2026-02-03', what: 'リハーサル' }, { date: '2026-02-19', what: '本番' }],
+  };
+  const at = (jst: string) => new Date(`${jst}T00:30:00+09:00`);
+  const shelfAt = (jst: string) => buildShelf([
+    // テーマの期限があれば、項目の due は使わない（二重管理しない）
+    { id: 'lecture', stream: 'lecture', due: '2026-01-01', done: false },
+  ], pages, at(jst), streamDues);
+
+  assert.equal(shelfAt('2026-01-20')[0].due, '2026-02-03');
+  assert.equal(shelfAt('2026-02-03')[0].due, '2026-02-03', '当日は当日の期限');
+  assert.equal(shelfAt('2026-02-04')[0].due, '2026-02-19', 'リハーサルの翌日は本番へ繰り上がる');
+  assert.equal(shelfAt('2026-02-20')[0].due, '2026-02-19', '最後の日の翌日は「昨日まで」で残す');
+  assert.deepEqual(shelfAt('2026-02-21'), [], '最後の日の翌々日に棚から落ちる');
+
+  assert.deepEqual(liveDues(streamDues.lecture, at('2026-02-05')).map((d) => d.date), ['2026-02-19']);
+  assert.equal(nextDue(streamDues.lecture, at('2026-02-04'))?.what, '本番');
+});
+
+test('the browser picks the nearest deadline with the same rule, including pinned themes', () => {
+  const html = readFileSync(new URL('../web/app/index.html', import.meta.url), 'utf8');
+  const source = html.match(/function nextDue\(dues, today = jstDay\(0\), yesterday = jstDay\(-1\)\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(source, '画面側に nextDue がある');
+  const browserNextDue = new Function(`const jstDay = () => ''; ${source[0]}; return nextDue;`)() as
+    (dues: { date: string; what: string | null }[], today: string, yesterday: string) => unknown;
+  const dues = [{ date: '2026-02-03', what: 'リハーサル' }, { date: '2026-02-19', what: '本番' }];
+  const prev = (day: string) => new Date(Date.parse(day) - 86400e3).toISOString().slice(0, 10);
+  for (const day of ['2026-01-20', '2026-02-03', '2026-02-04', '2026-02-19', '2026-02-20', '2026-02-21']) {
+    assert.deepEqual(browserNextDue(dues, day, prev(day)), nextDue(dues, new Date(`${day}T00:30:00+09:00`)), day);
+  }
+  // 押しピンで足したテーマも、テーマの期限から直近の日を選ぶ（due: null 固定に戻さない）
+  assert.doesNotMatch(html, /due: null, added: true/);
+  assert.match(html, /return withDue\(\{ id: `@added:\$\{key\}`/);
+  assert.match(html, /meta\?\.streamDues\?\.\[item\.stream\]/);
 });

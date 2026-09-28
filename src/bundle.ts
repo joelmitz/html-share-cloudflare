@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { HtmlShareConfig, PageConfig, ShelfItemConfig } from './config.js';
+import type { HtmlShareConfig, PageConfig, ShelfItemConfig, StreamDue } from './config.js';
 import { resolveFromConfig, validatedRoots } from './config.js';
 
 function packageRoot(): string {
@@ -67,7 +67,9 @@ export interface BuiltPage {
 export interface ShelfEntry {
   id: string;
   title: string;
+  /** build 時点の直近の期限。画面は dues から開くたびに選び直す */
   due: string | null;
+  dues: StreamDue[];
   note: string | null;
   stream?: string;
   slug?: string;
@@ -82,6 +84,8 @@ export interface BuildManifest {
   maximumShareDays: number;
   pages: BuiltPage[];
   shelf: ShelfEntry[];
+  /** テーマキー → まだ生きている期限。押しピンで足したテーマもここから期限を引く */
+  streamDues: Record<string, StreamDue[]>;
 }
 
 const DAY_MS = 86400e3;
@@ -91,18 +95,59 @@ function jstToday(now: Date): string {
   return new Date(now.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
 }
 
+function addDays(date: string, days: number): string {
+  return new Date(Date.parse(date) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** まだ生きている期限。締切当日の翌日までは「昨日まで」として残す */
+export function liveDues(dues: StreamDue[], now = new Date()): StreamDue[] {
+  const cutoff = addDays(jstToday(now), -1);
+  return dues.filter((due) => due.date >= cutoff);
+}
+
+/**
+ * 直近の期限。今日以降の最初の日、無ければ昨日の日。web/app/index.html の nextDue と同じ規則で、
+ * 選ぶのを画面側にしているので、節目を過ぎた翌朝には publish し直さなくても次の日へ繰り上がる
+ */
+export function nextDue(dues: StreamDue[], now = new Date()): StreamDue | null {
+  const today = jstToday(now);
+  const upcoming = dues.find((due) => due.date >= today);
+  if (upcoming) return upcoming;
+  const yesterday = addDays(today, -1);
+  return [...dues].reverse().find((due) => due.date === yesterday) ?? null;
+}
+
 /**
  * 進行中の棚を manifest 用に解決する。
  * done を書いた項目と、締切の翌日を過ぎた項目はここで落とす（台帳から消し忘れても棚に残らない）。
  * 締切の近い順に並べ、締切の無いものは後ろで最近動いた順にする。
  */
-export function buildShelf(items: ShelfItemConfig[], pages: BuiltPage[], now = new Date()): ShelfEntry[] {
-  const today = Date.parse(jstToday(now));
+export function buildShelf(
+  items: ShelfItemConfig[],
+  pages: BuiltPage[],
+  now = new Date(),
+  streamDues: Record<string, StreamDue[]> = {},
+): ShelfEntry[] {
   const out: ShelfEntry[] = [];
   for (const item of items) {
     if (item.done) continue;
-    if (item.due && Date.parse(item.due) + DAY_MS < today) continue;
-    const entry: ShelfEntry = { id: item.id, title: item.title ?? item.id, due: item.due ?? null, note: item.note ?? null, last: null };
+    // テーマの項目はテーマの期限が正本。テーマ側に無いときだけ項目の due を読む
+    const fromStream = item.stream !== undefined && Object.hasOwn(streamDues, item.stream);
+    if (fromStream && item.due) {
+      console.warn(`content.shelf: ${item.id} の due は使いません。期限は content.streamDues.${item.stream} に書いてください`);
+    }
+    const allDues = fromStream ? streamDues[item.stream as string] : item.due ? [{ date: item.due, what: null }] : [];
+    const dues = liveDues(allDues, now);
+    // 期限を持っていた項目は、最後の日の翌日を過ぎたら落とす
+    if (allDues.length > 0 && dues.length === 0) continue;
+    const entry: ShelfEntry = {
+      id: item.id,
+      title: item.title ?? item.id,
+      due: nextDue(dues, now)?.date ?? null,
+      dues,
+      note: item.note ?? null,
+      last: null,
+    };
     if (item.stream) {
       const inStream = pages
         .filter((page) => page.stream === item.stream)
@@ -404,7 +449,10 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
     internalSharing: config.content.allowedInternalCidrs.length > 0,
     maximumShareDays: config.content.maximumShareDays,
     pages,
-    shelf: buildShelf(config.content.shelf ?? [], pages),
+    shelf: buildShelf(config.content.shelf ?? [], pages, new Date(), config.content.streamDues ?? {}),
+    streamDues: Object.fromEntries(Object.entries(config.content.streamDues ?? {})
+      .map(([key, dues]) => [key, liveDues(dues)] as const)
+      .filter(([, dues]) => dues.length > 0)),
   };
   writeFileSync(path.join(buildRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
