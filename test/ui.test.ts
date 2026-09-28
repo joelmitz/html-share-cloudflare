@@ -62,10 +62,17 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.match(dashboard, /let shelfFilter = null;/);
   assert.match(dashboard, /chip\('すべて', \{ on: shelfFilter === null/, '「すべて」は絞り込みなしで選択状態');
   assert.match(dashboard, /const select = \(key\) => \(\) => \{ shelfFilter = shelfFilter === key \? null : key; renderHome\(\); \};/, 'チップは押すたびに絞り込みを切り替える');
-  assert.match(dashboard, /onClick: select\(item\.stream\),\s*onDone: \(\) => doneShelfItem\(item\)/, 'テーマのチップで絞り込み、選択中の✕で棚から下ろす');
+  assert.match(dashboard, /function shelfKey\(item\) \{\s*return item\.stream \?\? `@item:\$\{item\.id\}`;/, 'ページの無い項目は id から絞り込みのキーを作る');
+  assert.match(dashboard, /const key = shelfKey\(item\);[\s\S]{0,200}onClick: select\(key\),\s*onDone: \(\) => doneShelfItem\(item\)/, 'どのチップも絞り込みにし、選択中の✕で棚から下ろす');
+  assert.doesNotMatch(dashboard, /window\.open\(item\.url/, 'チップを押しても外部のページへ飛ばさない');
+  assert.doesNotMatch(dashboard, /\.chip\.link/, 'リンク用のチップの見た目を持たない');
+  assert.match(dashboard, /if \(item\?\.url\) \{[\s\S]{0,120}a\.target = '_blank';\s*a\.rel = 'noopener';\s*a\.textContent = '元のスレッド ↗';/, '絞り込み中の見出しに元のスレッドへのリンクを添える');
+  assert.match(dashboard, /liveShelf\(\)\.find\(\(candidate\) => shelfKey\(candidate\) === shelfFilter\)/, '見出しは絞り込みのキーで項目を探す');
+  assert.match(dashboard, /const shelfStreams = new Set\(liveShelf\(\)\.map\(shelfKey\)\);/, 'ページの無い項目の絞り込みも棚にある間は保つ');
+  assert.match(dashboard, /const onShelf = new Set\(\(meta\?\.shelf \?\? \[\]\)\.map\(\(item\) => item\.stream\)/, '台帳のテーマは下ろした後も自分で足したテーマとして復活させない');
+  assert.match(dashboard, /chip: page\.streamChip \?\? pageStreamLabel\(page\)/, 'テーマの短い名前はチップ名から取り、無ければ見出しを使う');
+  assert.match(dashboard, /title: summary\.chip, stream: key/, '自分で足したテーマのチップはチップ名で出す');
   assert.match(dashboard, /if \(onDone && on\) \{/, '✕は選択中のチップにだけ出す');
-  assert.match(dashboard, /window\.open\(item\.url, '_blank', 'noopener,noreferrer'\)/, 'リンクのチップは新しいタブで開く');
-  assert.match(dashboard, /\.chip\.link \.n::after \{ content: " ↗"; \}/);
   assert.match(dashboard, /const text = diff < 0 \? '昨日まで' : diff === 0 \? '今日' : diff === 1 \? '明日' : `\$\{diff\}日`;/, 'チップの締切は短い表記');
   assert.match(dashboard, /if \(showingTrash \|\| filterText\.trim\(\)\) return;/, '削除済みと検索中はチップを出さない');
   assert.match(dashboard, /body\.searching \.chips \{ display: none; \}/);
@@ -90,7 +97,8 @@ test('lets the owner add and remove in-progress items from the theme card pin', 
   assert.doesNotMatch(dashboard, /\.chip\.edit|chip ghost|＋ 追加'/, '鉛筆と「＋ 追加」のチップを持たない');
   assert.doesNotMatch(dashboard, /\.chips\.editing/, '編集中の折り返し指定を持たない');
   assert.match(dashboard, /else addShelfStream\(stream\.key\);/, 'カード見出しの押しピンで進行中へ足す');
-  assert.match(dashboard, /onClick: \(\) => window\.open\(item\.url, '_blank', 'noopener,noreferrer'\),\s*onDone: \(\) => doneShelfItem\(item\)/);
+  // リンクだけの項目も絞り込みのチップになるので、選択中の✕で下ろせる
+  assert.match(dashboard, /onClick: select\(key\),\s*onDone: \(\) => doneShelfItem\(item\)/);
   // ✕：台帳の項目は shelfDone へ、自分で足したテーマは shelfAdded から消す
   assert.match(dashboard, /if \(item\.added\) shelfAdded = shelfAdded\.filter\(\(key\) => key !== item\.stream\);\s*else shelfDone\.add\(item\.id\);/);
   // 追加：台帳にあって下ろしていたら戻し、無ければ shelfAdded に足す

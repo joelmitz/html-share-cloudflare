@@ -10,15 +10,18 @@ export interface PageConfig {
   repository?: string;
   stream?: string;
   streamLabel?: string;
+  /** 進行中チップに出すテーマの短い名前。同じテーマのどれか1ページに書けばよい */
+  streamChip?: string;
 }
 
 /**
  * 進行中の棚の1項目。ページではなく「まだ終わっていない仕事」の単位で持つ。
- * stream を書けばそのテーマの最新ページへ、url を書けばそのリンクへ飛ぶ（どちらか一方）。
+ * stream を書けばチップでそのテーマに絞り込み、url は絞り込み中の見出しにリンクとして出す（少なくとも一方）。
  */
 export interface ShelfItemConfig {
   id: string;
-  title: string;
+  /** 省略すると、テーマの項目はテーマのチップ名（streamChip）、url だけの項目は id を名前にする */
+  title?: string;
   stream?: string;
   url?: string;
   /** 締切（YYYY-MM-DD）。翌日を過ぎると棚から自動で消える */
@@ -133,10 +136,10 @@ function shelfItems(value: unknown): ShelfItemConfig[] {
     seen.add(id);
     const stream = typeof record.stream === 'string' && record.stream.trim() ? record.stream.trim() : undefined;
     const url = record.url === undefined || record.url === null ? undefined : linkUrl(record.url, `${name}.url`);
-    if (Boolean(stream) === Boolean(url)) throw new Error(`${name} needs exactly one of stream or url`);
+    if (!stream && !url) throw new Error(`${name} needs stream or url`);
     return {
       id,
-      title: typeof record.title === 'string' && record.title.trim() ? record.title.trim() : id,
+      title: typeof record.title === 'string' && record.title.trim() ? record.title.trim() : undefined,
       stream,
       url,
       due: isoDate(record.due, `${name}.due`),
@@ -218,6 +221,7 @@ export function loadConfig(file?: string): HtmlShareConfig {
           repository: typeof page.repository === 'string' ? page.repository.trim() : undefined,
           stream: typeof page.stream === 'string' ? page.stream.trim() : undefined,
           streamLabel: typeof page.streamLabel === 'string' ? page.streamLabel.trim() : undefined,
+          streamChip: typeof page.streamChip === 'string' && page.streamChip.trim() ? page.streamChip.trim() : undefined,
         };
       }),
       ownerLinkDays: positiveInteger(content.ownerLinkDays, 30, 'content.ownerLinkDays'),

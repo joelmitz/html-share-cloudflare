@@ -69,6 +69,57 @@ test('includes share capabilities in the generated manifest without exposing CID
   assert.doesNotMatch(JSON.stringify(manifest), /203\.0\.113/);
 });
 
+test('gives every page its theme chip and names untitled shelf items after it', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-chip-'));
+  for (const name of ['a', 'b', 'c', 'd']) writeFileSync(path.join(root, `${name}.html`), `<h1>${name}</h1>`);
+  const config = {
+    ownerEmail: 'owner@example.com',
+    aws: {
+      region: 'ap-northeast-1',
+      consoleDomain: 'console.example.com',
+      contentDomain: 'content.example.com',
+      certificateArn: 'arn:aws:acm:us-east-1:111122223333:certificate/00000000-0000-4000-8000-000000000000',
+      cognitoDomainPrefix: 'html-share-test',
+      publicKeyPath: '.html-share/keys/public.pem',
+      privateKeyPath: '.html-share/keys/private.pem',
+      privateKeyParameterName: '/html-share/test/private-key',
+    },
+    content: {
+      roots: ['.'],
+      pages: [
+        { path: 'a.html', stream: 'release', streamLabel: '新機能リリースの準備と告知' },
+        { path: 'b.html', stream: 'release', streamLabel: '新機能リリースの準備と告知', streamChip: '新機能リリース' },
+        { path: 'c.html', stream: 'weekly', streamLabel: '週次レポート' },
+        { path: 'd.html', stream: 'misc' },
+      ],
+      ownerLinkDays: 7,
+      maximumShareDays: 30,
+      maximumAssetBytes: 1024,
+      allowedInternalCidrs: [],
+      siteName: '#HTML共有くん',
+      ogImageUrl: false,
+      shelf: [{ id: 'release', stream: 'release', done: false }],
+    },
+    configFile: path.join(root, 'html-share.config.yaml'),
+    baseDir: root,
+  } satisfies HtmlShareConfig;
+
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (message: string) => { warnings.push(message); };
+  try {
+    const manifest = buildSite(config, path.join(root, 'build'));
+    // チップ名 → 見出し → テーマキーの順で決まり、同じテーマの全ページに同じ名前が付く
+    assert.deepEqual(manifest.pages.map((item) => item.streamChip), ['新機能リリース', '新機能リリース', '週次レポート', 'misc']);
+    assert.equal(manifest.shelf[0].title, '新機能リリース');
+  } finally {
+    console.warn = original;
+  }
+  // 見出しはあるのにチップ名が無いテーマは警告するが、ビルドは止めない
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /が無いテーマ: weekly$/);
+});
+
 test('uses the bundled card image unless the config opts out or overrides it', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'html-share-ogcard-'));
   writeFileSync(path.join(root, 'page.html'), '<!doctype html><html><head><meta charset="utf-8"><title>Demo</title></head><body></body></html>');

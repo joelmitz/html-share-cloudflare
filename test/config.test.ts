@@ -28,6 +28,7 @@ content:
       repository: examples
       stream: release-notes
       streamLabel: リリースノート
+      streamChip: リリース
   ownerLinkDays: 7
   maximumShareDays: 30
   maximumAssetBytes: 1024
@@ -43,6 +44,7 @@ test('loads a valid config and resolves its base directory', () => {
   assert.equal(loaded.content.pages[0].repository, 'examples');
   assert.equal(loaded.content.pages[0].stream, 'release-notes');
   assert.equal(loaded.content.pages[0].streamLabel, 'リリースノート');
+  assert.equal(loaded.content.pages[0].streamChip, 'リリース');
   assert.deepEqual(loaded.content.allowedInternalCidrs, ['203.0.113.0/24']);
 });
 
@@ -120,8 +122,14 @@ test('loads shelf items and rejects ambiguous ones', () => {
   assert.equal(shelf[1].note, 'waiting for a reply');
   assert.equal(shelf[1].done, false);
 
+  // テーマとリンクの両方を持てる。title を省くと未設定のまま（テーマのチップ名は publish 時に決まる）
   writeFileSync(config, `${base}  shelf:\n    - id: both\n      stream: a\n      url: https://example.com/\n`);
-  assert.throws(() => loadConfig(config), /exactly one of stream or url/);
+  const [both] = loadConfig(config).content.shelf ?? [];
+  assert.equal(both.stream, 'a');
+  assert.equal(both.url, 'https://example.com/');
+  assert.equal(both.title, undefined);
+  writeFileSync(config, `${base}  shelf:\n    - id: neither\n      title: Nothing to open\n`);
+  assert.throws(() => loadConfig(config), /needs stream or url/);
   writeFileSync(config, `${base}  shelf:\n    - id: dup\n      url: https://example.com/\n    - id: dup\n      url: https://example.com/\n`);
   assert.throws(() => loadConfig(config), /duplicated/);
   writeFileSync(config, `${base}  shelf:\n    - id: bad\n      url: "javascript:alert(1)"\n`);

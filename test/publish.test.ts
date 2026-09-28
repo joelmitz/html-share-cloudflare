@@ -17,6 +17,7 @@ function page(slug: string, title = slug): BuiltPage {
     repository: 'test',
     stream: 'test',
     streamLabel: 'Test',
+    streamChip: 'Test',
     objectKey: `pages/${slug}/index.html`,
   };
 }

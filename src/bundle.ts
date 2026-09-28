@@ -55,10 +55,15 @@ export interface BuiltPage {
   repository: string;
   stream: string;
   streamLabel: string;
+  /** 進行中チップに出す短い名前。streamChip → streamLabel → テーマキーの順で決める */
+  streamChip: string;
   objectKey: string;
 }
 
-/** 棚の1行。stream 項目は最新ページの slug・件数・最終更新、url 項目はリンクと追加日を持つ */
+/**
+ * 棚の1行。stream 項目は最新ページの slug・件数・最終更新、url だけの項目はリンクと追加日を持つ。
+ * stream と url の両方を持つ項目は、url を絞り込み中の見出しのリンクに使う
+ */
 export interface ShelfEntry {
   id: string;
   title: string;
@@ -97,7 +102,7 @@ export function buildShelf(items: ShelfItemConfig[], pages: BuiltPage[], now = n
   for (const item of items) {
     if (item.done) continue;
     if (item.due && Date.parse(item.due) + DAY_MS < today) continue;
-    const entry: ShelfEntry = { id: item.id, title: item.title, due: item.due ?? null, note: item.note ?? null, last: null };
+    const entry: ShelfEntry = { id: item.id, title: item.title ?? item.id, due: item.due ?? null, note: item.note ?? null, last: null };
     if (item.stream) {
       const inStream = pages
         .filter((page) => page.stream === item.stream)
@@ -106,11 +111,14 @@ export function buildShelf(items: ShelfItemConfig[], pages: BuiltPage[], now = n
         console.warn(`content.shelf: ${item.id} のテーマ ${item.stream} にページがないので、棚に出しません`);
         continue;
       }
+      // テーマの項目は title を書かなければテーマのチップ名を使う（名前を二重に管理しない）
+      if (!item.title) entry.title = inStream[0].streamChip;
       Object.assign(entry, {
         stream: item.stream,
         slug: inStream[0].slug,
         count: inStream.length,
         last: inStream[0].updatedAt,
+        ...(item.url ? { url: item.url } : {}),
       });
     } else if (item.url) {
       Object.assign(entry, { url: item.url, last: item.added ?? null });
@@ -125,6 +133,43 @@ export function buildShelf(items: ShelfItemConfig[], pages: BuiltPage[], now = n
     return String(right.last ?? '').localeCompare(String(left.last ?? ''));
   });
   return out;
+}
+
+/** チップ名の長さの上限。全角1・半角0.5で数える */
+export const CHIP_MAX_WIDTH = 11;
+
+/** チップ名の長さ。全角1・半角0.5で数える。「Q3ロードマップ説明会」が10 */
+export function chipWidth(value: string): number {
+  return [...value].reduce((width, char) => width + (char.charCodeAt(0) < 0x80 ? 0.5 : 1), 0);
+}
+
+export interface StreamChipSource {
+  stream: string;
+  streamLabel?: string;
+  streamChip?: string;
+}
+
+/**
+ * テーマごとのチップ名を決める。同じテーマで最初に書かれた streamChip を使う。
+ * 見出し（streamLabel）はあるのにチップ名が無いテーマと、チップ名が長すぎるテーマは警告にする（失敗にはしない）
+ */
+export function resolveStreamChips(sources: StreamChipSource[]): { chips: Map<string, string>; warnings: string[] } {
+  const chips = new Map<string, string>();
+  const labeled = new Set<string>();
+  for (const source of sources) {
+    if (source.streamLabel) labeled.add(source.stream);
+    if (source.streamChip && !chips.has(source.stream)) chips.set(source.stream, source.streamChip);
+  }
+  const warnings: string[] = [];
+  const missing = [...labeled].filter((stream) => !chips.has(stream));
+  if (missing.length > 0) {
+    warnings.push(`content.pages: streamChip（進行中チップの短い名前）が無いテーマ: ${missing.join(' / ')}`);
+  }
+  const long = [...chips].filter(([, name]) => chipWidth(name) > CHIP_MAX_WIDTH);
+  if (long.length > 0) {
+    warnings.push(`content.pages: streamChip が長すぎるテーマ（全角${CHIP_MAX_WIDTH}字まで）: ${long.map(([stream, name]) => `${stream}「${name}」`).join(' / ')}`);
+  }
+  return { chips, warnings };
 }
 
 export function slugify(value: string): string {
@@ -313,7 +358,7 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
   mkdirSync(contentRoot, { recursive: true });
   const ogImageUrl = resolveOgImage(config, contentRoot);
   const used = new Set<string>();
-  const pages = config.content.pages.map((page) => {
+  const drafts = config.content.pages.map((page) => {
     const source = pagePath(config, page);
     const sourceReal = realpathSync(source);
     const html = bundleHtml(sourceReal, roots, config.content.maximumAssetBytes, {
@@ -344,6 +389,16 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
       objectKey: `pages/${slug}/index.html`,
     };
   });
+  const { chips, warnings } = resolveStreamChips(config.content.pages.map((page, index) => ({
+    stream: drafts[index].stream,
+    streamLabel: page.streamLabel,
+    streamChip: page.streamChip,
+  })));
+  for (const warning of warnings) console.warn(warning);
+  const pages: BuiltPage[] = drafts.map((page) => ({
+    ...page,
+    streamChip: chips.get(page.stream) ?? page.streamLabel,
+  }));
   const manifest = {
     generatedAt: new Date().toISOString(),
     internalSharing: config.content.allowedInternalCidrs.length > 0,

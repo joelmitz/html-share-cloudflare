@@ -347,13 +347,13 @@ body.searching .chips { display: none; }
   border-radius: 50%; color: var(--mut); font-size: .8rem; line-height: 1;
 }
 .chip .x:hover { background: var(--blue-soft); color: var(--blue); }
-.chip.link .n::after { content: " ↗"; }
 /* 絞り込み中にだけ出す1行。何で絞っているか・締切・メモを本文の先頭で示す */
 .filter-note {
   margin: 1.1rem var(--gutter) -.4rem; font-size: .8rem; color: var(--sub);
   overflow-wrap: anywhere;
 }
 .filter-note b { color: var(--blue-deep); }
+.filter-note a { color: var(--blue); }
 
 .empty { padding: 4rem 0; text-align: center; color: var(--mut); font-size: .85rem; }
 
@@ -1183,11 +1183,16 @@ body.page-controls-hidden #page-actions {
     return { text: `${rel}・${date}`, soon: diff <= 3 };
   }
 
+  /** 棚の項目で絞り込むときのキー。テーマに紐づく項目はテーマキー、ページの無い項目は id から作る */
+  function shelfKey(item) {
+    return item.stream ?? `@item:${item.id}`;
+  }
+
   /** 進行中から外す。台帳（設定の shelf）の項目は下ろした印を、自分で足したテーマは足した記録を消す */
   function doneShelfItem(item) {
     if (item.added) shelfAdded = shelfAdded.filter((key) => key !== item.stream);
     else shelfDone.add(item.id);
-    if (shelfFilter === item.stream) shelfFilter = null;
+    if (shelfFilter === shelfKey(item)) shelfFilter = null;
     queuePreferenceSave();
     renderHome();
   }
@@ -1206,7 +1211,7 @@ body.page-controls-hidden #page-actions {
     const map = new Map();
     for (const page of pages) {
       const key = pageStream(page);
-      if (!map.has(key)) map.set(key, { key, label: pageStreamLabel(page), count: 0, last: page.date });
+      if (!map.has(key)) map.set(key, { key, label: pageStreamLabel(page), chip: page.streamChip ?? pageStreamLabel(page), count: 0, last: page.date });
       const summary = map.get(key);
       summary.count += 1;
       if (Date.parse(page.date) > Date.parse(summary.last)) summary.last = page.date;
@@ -1219,14 +1224,15 @@ body.page-controls-hidden #page-actions {
    */
   function liveShelf() {
     const ledger = (meta?.shelf ?? []).filter((item) => !shelfDone.has(item.id)
-      && (item.url || allPages.some((candidate) => candidate.slug === item.slug)));
-    const onShelf = new Set(ledger.map((item) => item.stream).filter(Boolean));
+      && (item.stream ? allPages.some((candidate) => candidate.slug === item.slug) : Boolean(item.url)));
+    // 台帳にあるテーマは、下ろした後も「自分で足したテーマ」として長い見出しで復活させない
+    const onShelf = new Set((meta?.shelf ?? []).map((item) => item.stream).filter(Boolean));
     const summaries = streamSummaries();
     const added = shelfAdded
       .filter((key) => !onShelf.has(key) && summaries.has(key))
       .map((key) => {
         const summary = summaries.get(key);
-        return { id: `@added:${key}`, title: summary.label, stream: key, count: summary.count, last: summary.last, due: null, added: true };
+        return { id: `@added:${key}`, title: summary.chip, stream: key, count: summary.count, last: summary.last, due: null, added: true };
       });
     return [...ledger, ...added];
   }
@@ -1242,19 +1248,19 @@ body.page-controls-hidden #page-actions {
     return { text, soon: diff <= 3 };
   }
 
-  function chip(label, { on = false, count = null, due = null, onClick, onDone = null, link = false }) {
+  function chip(label, { on = false, count = null, due = null, onClick, onDone = null }) {
     const el = document.createElement('button');
     el.type = 'button';
-    el.className = `chip${on ? ' on' : ''}${link ? ' link' : ''}`;
+    el.className = `chip${on ? ' on' : ''}`;
     el.setAttribute('aria-pressed', String(on));
     const name = document.createElement('span');
     name.textContent = label;
     el.append(name);
     const sub = due ?? (count === null ? null : { text: String(count), soon: false });
-    if (sub || link) {
+    if (sub) {
       const n = document.createElement('span');
-      n.className = `n${sub?.soon ? ' soon' : ''}`;
-      n.textContent = sub?.text ?? '';
+      n.className = `n${sub.soon ? ' soon' : ''}`;
+      n.textContent = sub.text;
       el.append(n);
     }
     el.addEventListener('click', onClick);
@@ -1280,19 +1286,14 @@ body.page-controls-hidden #page-actions {
     if (showingTrash || filterText.trim()) return;
     const select = (key) => () => { shelfFilter = shelfFilter === key ? null : key; renderHome(); };
     bar.append(chip('すべて', { on: shelfFilter === null, onClick: () => { shelfFilter = null; renderHome(); } }));
+    // チップは必ず絞り込みにする。押しただけで外部のページへ飛ばさない。
+    // ページの無い項目（url だけの項目）も絞り込みの見出しに切り替え、リンクは見出しから開く
     for (const item of liveShelf()) {
-      if (item.url) {
-        bar.append(chip(item.title, {
-          due: chipDue(item.due), link: true,
-          onClick: () => window.open(item.url, '_blank', 'noopener,noreferrer'),
-          onDone: () => doneShelfItem(item),
-        }));
-        continue;
-      }
+      const key = shelfKey(item);
       bar.append(chip(item.title, {
-        on: shelfFilter === item.stream,
+        on: shelfFilter === key,
         due: chipDue(item.due),
-        onClick: select(item.stream),
+        onClick: select(key),
         onDone: () => doneShelfItem(item),
       }));
     }
@@ -1302,7 +1303,7 @@ body.page-controls-hidden #page-actions {
   function renderFilterNote(count) {
     const note = $('filter-note');
     if (!shelfFilter || showingTrash) { note.hidden = true; return; }
-    const item = liveShelf().find((candidate) => !candidate.url && candidate.stream === shelfFilter);
+    const item = liveShelf().find((candidate) => shelfKey(candidate) === shelfFilter);
     note.hidden = false;
     note.replaceChildren();
     const b = document.createElement('b');
@@ -1312,13 +1313,21 @@ body.page-controls-hidden #page-actions {
     if (item?.note) parts.push(item.note);
     parts.push(`${count}ページ`);
     note.append(b, document.createTextNode(`　${parts.join('・')}`));
+    if (item?.url) {
+      const a = document.createElement('a');
+      a.href = item.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = '元のスレッド ↗';
+      note.append(document.createTextNode('・'), a);
+    }
   }
 
   // ── トップ: スター付き → 日付の区切り（中はテーマ単位の塊）。進行中はヘッダーのチップで絞る
   function renderHome() {
     tilesEl.replaceChildren();
     // チップで選んだ絞り込みは、下ろされたり検索を始めたり棚から消えたりしたら解除する
-    const shelfStreams = new Set(liveShelf().filter((item) => item.stream).map((item) => item.stream));
+    const shelfStreams = new Set(liveShelf().map(shelfKey));
     if (shelfFilter && (showingTrash || filterText.trim() || !shelfStreams.has(shelfFilter))) shelfFilter = null;
     const items = shelfFilter
       ? visiblePages().filter((page) => pageStream(page) === shelfFilter)
