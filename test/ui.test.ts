@@ -131,7 +131,7 @@ test('loads iframe pages without adding child-frame history entries', () => {
 
 test('keeps generated report sections within the mobile viewport', () => {
   const template = readFileSync(path.join(root, 'skills', 'create-html', 'assets', 'brief-template.html'), 'utf8');
-  assert.match(template, /main > \* \{ min-width: 0; \}/);
+  assert.match(template, /\.grid > \*, \.ba > \* \{ min-width: 0; \}/);
 });
 
 test('provisions managed login branding and the CloudFront payload hash header', () => {
