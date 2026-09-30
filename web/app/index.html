@@ -676,11 +676,11 @@ body.page-controls-hidden #page-actions {
   let allPages = [], pages = [], current = null, meta = null;
   let starred = new Set();
   let hiddenSources = new Set();
-  // 進行中の棚から ✓ で下ろした項目の id。棚の台帳（設定ファイル）は書き換えず、本人設定として同期する
+  // 進行中フィルターから ✓ で外した項目の id。進行中フィルターの台帳（設定ファイル）は書き換えず、本人設定として同期する
   let shelfDone = new Set();
   // 本人がカード見出しの押しピンで進行中へ足したテーマのキー（足した順）
   let shelfAdded = [];
-  // 棚の行を押して絞り込み中のテーマキー。もう一度押すと解除する
+  // 進行中フィルターの行を押して絞り込み中のテーマキー。もう一度押すと解除する
   let shelfFilter = null;
   // { ページの source: 開いたときの更新日時 }。更新日時ごと持つので、再更新で自動的に未読へ戻る
   let readMarks = {};
@@ -848,7 +848,7 @@ body.page-controls-hidden #page-actions {
     const validStreams = new Set(allPages.map(pageStream));
     starred = new Set([...starred].filter((value) => isValidStarValue(value, validSources, validStreams)));
     hiddenSources = new Set([...hiddenSources].filter((source) => validSources.has(source)));
-    // 棚から消えた項目の印は持ち続けない（保存の上限に当たらないようにする）
+    // 進行中フィルターから消えた項目の印は持ち続けない（保存の上限に当たらないようにする）
     const validShelf = new Set((meta?.shelf ?? []).map((item) => item.id));
     shelfDone = new Set([...shelfDone].filter((id) => validShelf.has(id)));
     // ページが1件も無くなったテーマは、足した記録も持ち続けない
@@ -1169,7 +1169,7 @@ body.page-controls-hidden #page-actions {
       .toLowerCase().includes(needle));
   }
 
-  /** 棚の締切を「あと◯日・9/30（水）」の形にする。日付は JST の暦日で数える */
+  /** 進行中フィルターの締切を「あと◯日・9/30（水）」の形にする。日付は JST の暦日で数える */
   function shelfDueLabel(due) {
     if (!due) return { text: '', soon: false };
     const W = '日月火水木金土';
@@ -1183,12 +1183,12 @@ body.page-controls-hidden #page-actions {
     return { text: `${rel}・${date}`, soon: diff <= 3 };
   }
 
-  /** 棚の項目で絞り込むときのキー。テーマに紐づく項目はテーマキー、ページの無い項目は id から作る */
+  /** 進行中フィルターの項目で絞り込むときのキー。テーマに紐づく項目はテーマキー、ページの無い項目は id から作る */
   function shelfKey(item) {
     return item.stream ?? `@item:${item.id}`;
   }
 
-  /** 進行中から外す。台帳（設定の shelf）の項目は下ろした印を、自分で足したテーマは足した記録を消す */
+  /** 進行中から外す。台帳（設定の shelf）の項目は外した印を、自分で足したテーマは足した記録を消す */
   function doneShelfItem(item) {
     if (item.added) shelfAdded = shelfAdded.filter((key) => key !== item.stream);
     else shelfDone.add(item.id);
@@ -1197,7 +1197,7 @@ body.page-controls-hidden #page-actions {
     renderHome();
   }
 
-  /** テーマを進行中へ足す。台帳にあって下ろしていた項目なら、下ろした印を外して締切ごと戻す */
+  /** テーマを進行中へ足す。台帳にあって外していた項目なら、外した印を外して締切ごと戻す */
   function addShelfStream(streamKey) {
     // 期限を全部過ぎて画面から下りた台帳の項目は、無いものとして扱う（押しピンで足し直せる）
     const ledger = (meta?.shelf ?? []).find((item) => item.stream === streamKey && !isExpiredLedger(item));
@@ -1255,10 +1255,10 @@ body.page-controls-hidden #page-actions {
   function liveShelf() {
     const ledger = (meta?.shelf ?? []).filter((item) => !shelfDone.has(item.id)
       && (item.stream ? allPages.some((candidate) => candidate.slug === item.slug) : Boolean(item.url)))
-      // 期限を全部過ぎた台帳の項目は、次の publish を待たずに下ろす
+      // 期限を全部過ぎた台帳の項目は、次の publish を待たずに外す
       .filter((item) => !isExpiredLedger(item))
       .map(withDue);
-    // 台帳にあるテーマは、下ろした後も「自分で足したテーマ」として長い見出しで復活させない
+    // 台帳にあるテーマは、外した後も「自分で足したテーマ」として長い見出しで復活させない
     const onShelf = new Set((meta?.shelf ?? []).filter((item) => !isExpiredLedger(item))
       .map((item) => item.stream).filter(Boolean));
     const summaries = streamSummaries();
@@ -1309,8 +1309,8 @@ body.page-controls-hidden #page-actions {
       const x = document.createElement('span');
       x.className = 'x';
       x.setAttribute('role', 'button');
-      x.setAttribute('aria-label', `${label}を棚から下ろす`);
-      x.title = '棚から下ろす（ページは消えません）';
+      x.setAttribute('aria-label', `${label}を進行中フィルターから外す`);
+      x.title = '進行中フィルターから外す（ページは消えません）';
       x.textContent = '✕';
       x.addEventListener('click', (event) => { event.stopPropagation(); onDone(); });
       el.append(x);
@@ -1318,7 +1318,7 @@ body.page-controls-hidden #page-actions {
     return el;
   }
 
-  /** ヘッダーの絞り込みチップ。すべて → 棚の項目（締切の近い順） */
+  /** ヘッダーの絞り込みチップ。すべて → 進行中フィルターの項目（締切の近い順） */
   function renderChips() {
     const bar = $('chips');
     bar.replaceChildren();
@@ -1366,7 +1366,7 @@ body.page-controls-hidden #page-actions {
   // ── トップ: スター付き → 日付の区切り（中はテーマ単位の塊）。進行中はヘッダーのチップで絞る
   function renderHome() {
     tilesEl.replaceChildren();
-    // チップで選んだ絞り込みは、下ろされたり検索を始めたり棚から消えたりしたら解除する
+    // チップで選んだ絞り込みは、外されたり検索を始めたり進行中フィルターから消えたりしたら解除する
     const shelfStreams = new Set(liveShelf().map(shelfKey));
     if (shelfFilter && (showingTrash || filterText.trim() || !shelfStreams.has(shelfFilter))) shelfFilter = null;
     const items = shelfFilter

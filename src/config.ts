@@ -15,7 +15,7 @@ export interface PageConfig {
 }
 
 /**
- * 進行中の棚の1項目。ページではなく「まだ終わっていない仕事」の単位で持つ。
+ * 進行中フィルターの1項目。ページではなく「まだ終わっていない仕事」の単位で持つ。
  * stream を書けばチップでそのテーマに絞り込み、url は絞り込み中の見出しにリンクとして出す（少なくとも一方）。
  */
 export interface ShelfItemConfig {
@@ -25,14 +25,14 @@ export interface ShelfItemConfig {
   stream?: string;
   url?: string;
   /**
-   * url だけの項目の締切（YYYY-MM-DD）。翌日を過ぎると棚から自動で消える。
+   * url だけの項目の締切（YYYY-MM-DD）。翌日を過ぎると進行中フィルターから自動で消える。
    * テーマの項目は content.streamDues が正本で、そちらがあれば due は使わない
    */
   due?: string;
   note?: string;
-  /** url 項目を棚へ載せた日（YYYY-MM-DD）。締切なしの並び順と「◯日動きなし」に使う */
+  /** url 項目を進行中フィルターへ載せた日（YYYY-MM-DD）。締切なしの並び順と「◯日動きなし」に使う */
   added?: string;
-  /** 書いておくと棚に出さない */
+  /** 書いておくと進行中フィルターに出さない */
   done: boolean;
 }
 
@@ -70,10 +70,10 @@ export interface HtmlShareConfig {
     ogImageUrl?: string | false;
     /** カードの大きさ。省略すると summary（各媒体でいちばん小さいカード） */
     ogCardType?: 'summary' | 'summary_large_image';
-    /** 進行中の棚。省略すると棚を出さない */
+    /** 進行中フィルター。省略すると進行中フィルターを出さない */
     shelf?: ShelfItemConfig[];
     /**
-     * テーマキー → 期限の一覧。棚の項目にも、画面の押しピンで足したテーマにも同じ期限が出る。
+     * テーマキー → 期限の一覧。進行中フィルターの項目にも、画面の押しピンで足したテーマにも同じ期限が出る。
      * 画面が今日以降でいちばん近い日を選ぶので、節目が複数あれば全部並べる
      */
     streamDues?: Record<string, StreamDue[]>;
@@ -114,7 +114,7 @@ function httpsUrl(value: unknown, name: string): string {
   return parsed.toString();
 }
 
-/** 棚の締切や追加日。YAML が日付として読んだ値も文字列へ戻す */
+/** 進行中フィルターの締切や追加日。YAML が日付として読んだ値も文字列へ戻す */
 function isoDate(value: unknown, name: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const result = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).trim();
@@ -124,7 +124,7 @@ function isoDate(value: unknown, name: string): string | undefined {
   return result;
 }
 
-/** 棚のリンク。画面から開く先なので http(s) だけを許す */
+/** 進行中フィルターのリンク。画面から開く先なので http(s) だけを許す */
 function linkUrl(value: unknown, name: string): string {
   const result = text(value, name);
   let parsed: URL;

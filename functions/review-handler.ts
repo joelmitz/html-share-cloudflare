@@ -84,8 +84,8 @@ function cleanSourceList(value: unknown, name: string, maximum: number): string[
 }
 
 /**
- * 進行中の棚から ✓ で下ろした項目の id。
- * 棚を知らない古いクライアントは shelfDone を送らないので、そのときは保存済みの値を残す。
+ * 進行中フィルターから ✓ で外した項目の id。
+ * 進行中フィルターを知らない古いクライアントは shelfDone を送らないので、そのときは保存済みの値を残す。
  */
 export function cleanShelfDone(value: unknown, stored: unknown): string[] {
   if (value === undefined) {
@@ -301,7 +301,7 @@ export async function handler(event: any): Promise<any> {
         const recentSources = cleanSourceList(body.recentSources ?? [], 'recentSources', 6);
         const hiddenSources = cleanSourceList(body.hiddenSources ?? [], 'hiddenSources', 500);
         const readMarks = cleanReadMarks(body.readMarks ?? {}, 800);
-        // 棚の項目を知らない古いクライアントの PUT でも消さないよう、送られなかった分は保存値を残す。
+        // 進行中フィルターの項目を知らない古いクライアントの PUT でも消さないよう、送られなかった分は保存値を残す。
         // 保存値の読み出しは、どちらが欠けていても1回で済ませる
         const stored = body.shelfDone === undefined || body.shelfAdded === undefined
           ? (await ddb.send(new GetCommand({ TableName: table, Key: PREFERENCES_KEY, ConsistentRead: true }))).Item

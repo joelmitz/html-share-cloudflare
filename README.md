@@ -33,7 +33,7 @@ Claude Code、Codex、Cursorなど、手元のどのエージェントからで�
 - [初回セットアップ](docs/setup.md)
 - [アーキテクチャ](docs/architecture.md)
 - [セキュリティ設計](docs/threat-model.md)
-- [進行中の棚](docs/shelf.md)
+- [進行中フィルター](docs/progress-filter.md)
 - [リンクプレビュー（OGP）](docs/link-preview.md)
 
 ## ライセンス

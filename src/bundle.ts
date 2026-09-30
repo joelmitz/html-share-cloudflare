@@ -61,7 +61,7 @@ export interface BuiltPage {
 }
 
 /**
- * 棚の1行。stream 項目は最新ページの slug・件数・最終更新、url だけの項目はリンクと追加日を持つ。
+ * 進行中フィルターの1行。stream 項目は最新ページの slug・件数・最終更新、url だけの項目はリンクと追加日を持つ。
  * stream と url の両方を持つ項目は、url を絞り込み中の見出しのリンクに使う
  */
 export interface ShelfEntry {
@@ -90,7 +90,7 @@ export interface BuildManifest {
 
 const DAY_MS = 86400e3;
 
-/** 棚の日付は JST の暦日で比べる */
+/** 進行中フィルターの日付は JST の暦日で比べる */
 function jstToday(now: Date): string {
   return new Date(now.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
 }
@@ -118,8 +118,8 @@ export function nextDue(dues: StreamDue[], now = new Date()): StreamDue | null {
 }
 
 /**
- * 進行中の棚を manifest 用に解決する。
- * done を書いた項目と、締切の翌日を過ぎた項目はここで落とす（台帳から消し忘れても棚に残らない）。
+ * 進行中フィルターを manifest 用に解決する。
+ * done を書いた項目と、締切の翌日を過ぎた項目はここで外す（台帳から消し忘れても進行中フィルターに残らない）。
  * 締切の近い順に並べ、締切の無いものは後ろで最近動いた順にする。
  */
 export function buildShelf(
@@ -153,7 +153,7 @@ export function buildShelf(
         .filter((page) => page.stream === item.stream)
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
       if (inStream.length === 0) {
-        console.warn(`content.shelf: ${item.id} のテーマ ${item.stream} にページがないので、棚に出しません`);
+        console.warn(`content.shelf: ${item.id} のテーマ ${item.stream} にページがないので、進行中フィルターに出しません`);
         continue;
       }
       // テーマの項目は title を書かなければテーマのチップ名を使う（名前を二重に管理しない）

@@ -138,7 +138,7 @@ test('takes theme deadlines from streamDues and rolls over to the next milestone
   assert.equal(shelfAt('2026-02-03')[0].due, '2026-02-03', '当日は当日の期限');
   assert.equal(shelfAt('2026-02-04')[0].due, '2026-02-19', 'リハーサルの翌日は本番へ繰り上がる');
   assert.equal(shelfAt('2026-02-20')[0].due, '2026-02-19', '最後の日の翌日は「昨日まで」で残す');
-  assert.deepEqual(shelfAt('2026-02-21'), [], '最後の日の翌々日に棚から落ちる');
+  assert.deepEqual(shelfAt('2026-02-21'), [], '最後の日の翌々日に進行中フィルターから外れる');
 
   assert.deepEqual(liveDues(streamDues.lecture, at('2026-02-05')).map((d) => d.date), ['2026-02-19']);
   assert.equal(nextDue(streamDues.lecture, at('2026-02-04'))?.what, '本番');
