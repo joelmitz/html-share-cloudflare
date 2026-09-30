@@ -432,11 +432,9 @@
     let generatedUrl = '';
     try {
       const shareBody = JSON.stringify({ slug: currentPage.slug, scope: mode === 'i' ? 'internal' : 'public', days });
-      const shareBodyHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(shareBody));
-      const shareBodyHashHex = Array.from(new Uint8Array(shareBodyHash)).map(b => b.toString(16).padStart(2, '0')).join('');
       const response = await fetch('/api/owner/shares', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-amz-content-sha256': shareBodyHashHex },
+        headers: { 'content-type': 'application/json', 'x-amz-content-sha256': await sha256(shareBody) },
         body: shareBody,
       });
       const payload = await response.json().catch(() => ({}));
