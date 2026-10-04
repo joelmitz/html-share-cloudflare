@@ -7,279 +7,222 @@
   <title>{{PAGE_TITLE}}</title>
   <style>
     :root {
+      /* Base hue: one deep-blue gradient. Neutrals carry text and lines. Gold is the only accent. */
       --blue-deep: #0e0d6a;
       --blue: #0a4695;
       --blue-mid: #0862aa;
       --blue-bright: #0aa0dc;
       --blue-soft: #eaf2fb;
       --blue-line: #cfe0f2;
+      --blue-grad: linear-gradient(135deg, #0e0d6a 0%, #0a4695 45%, #0862aa 68%, #01b6ec 100%);
+      --ink: #15151a;
+      --sub: #4a4a54;
+      --mut: #767680;
+      --line: #e8e8ee;
+      --soft: #f7f8fa;
+      /* Neutral band for the side you want to sink (Before, rejected option). White text stays above 5:1. */
+      --gray-grad: linear-gradient(135deg, #2f2f37 0%, #474751 55%, #6a6a75 100%);
       --gold: #f0b21f;
       --gold-deep: #8a5a00;
       --gold-soft: #fdf5e0;
-      --ink: #172033;
-      --muted: #667085;
-      --surface: #ffffff;
-      --canvas: #f4f7fb;
-      --line: #dfe6ef;
-      --shadow: 0 18px 50px rgba(14, 13, 106, 0.10);
-      --radius-lg: 24px;
-      --radius-md: 16px;
-      --hero-gradient: linear-gradient(135deg, #0e0d6a 0%, #0a4695 45%, #0862aa 68%, #01b6ec 100%);
     }
 
-    * { box-sizing: border-box; }
-
-    html {
-      min-width: 320px;
-      background: var(--canvas);
-      color-scheme: light;
-      scroll-behavior: smooth;
-    }
-
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; }
     body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--canvas);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
       color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
-      font-size: 16px;
+      font-size: 15.5px;
       line-height: 1.85;
+      -webkit-font-smoothing: antialiased;
+      -webkit-text-size-adjust: 100%;
+      font-feature-settings: "palt" 1;
       overflow-wrap: anywhere;
     }
+    .wrap { max-width: 940px; margin: 0 auto; padding: 0 max(22px, env(safe-area-inset-left)); }
+    .wrap p { margin: 10px 0; }
+    .wrap a { color: var(--blue); text-underline-offset: .2em; }
+    a:focus-visible { outline: 3px solid rgba(240, 178, 31, .7); outline-offset: 3px; border-radius: 4px; }
+    img, svg { display: block; max-width: 100%; height: auto; }
+    /* Grid and flex children shrink below their content width, or one long word widens the page on phones. */
+    .grid > *, .ba > * { min-width: 0; }
 
-    a { color: var(--blue); text-underline-offset: 0.2em; }
-    a:hover { color: var(--blue-mid); }
-    a:focus-visible { outline: 3px solid rgba(240, 178, 31, 0.7); outline-offset: 4px; border-radius: 4px; }
-    img, svg { display: block; max-width: 100%; }
+    /* 1. Hero: the only full-width gradient surface. It sits outside .wrap. */
+    .hero { background: var(--blue-grad); padding: calc(64px + env(safe-area-inset-top, 0px)) 0 46px; }
+    /* Paint every descendant white. Inherited color loses to any later `p { color: ... }`. Do not list tags. */
+    .hero, .hero * { color: #fff; }
+    /* Under white text in the hero, only darkening underlays are safe. */
+    .hero code { color: #fff; background: rgba(0, 0, 0, .35); border-color: rgba(255, 255, 255, .3); }
+    .hero-in { max-width: 940px; margin: 0 auto; padding: 0 max(22px, env(safe-area-inset-left)); }
+    .hero .kicker { display: block; margin-bottom: 14px; font-size: 12px; font-weight: 700; letter-spacing: .16em; opacity: .72; }
+    .hero h1 { margin: 0 0 16px; font-size: 31px; line-height: 1.36; font-weight: 700; letter-spacing: .005em; }
+    .hero .sub { margin: 0; font-size: 15px; font-weight: 500; opacity: .93; }
+    .hero .meta { margin-top: 26px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, .22); font-size: 12.5px; line-height: 1.9; opacity: .74; }
 
-    .page {
-      width: min(100% - 32px, 940px);
-      margin: 0 auto;
-      padding: max(24px, env(safe-area-inset-top)) 0 max(48px, env(safe-area-inset-bottom));
+    /* Table of contents for pages that are read before a meeting. */
+    .toc { margin: 34px 0 0; padding: 20px 24px; background: var(--soft); border-radius: 16px; }
+    .toc h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .14em; color: var(--mut); font-weight: 700; }
+    .wrap .toc ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px 28px; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
+    .wrap .toc li { margin: 0; }
+    .toc a { display: flex; gap: 12px; align-items: baseline; padding: 5px 0; color: var(--sub); font-size: 14px; text-decoration: none; }
+    .toc a:hover { color: var(--blue-deep); }
+    .toc .num { flex: none; min-width: 18px; color: var(--blue-bright); font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    /* 2. Section divider: a hairline with a 72px gradient bar at the left. 3. Gradient section number. */
+    section { position: relative; margin: 0; padding: 46px 0 36px; border-top: 1px solid var(--line); }
+    section:first-of-type { border-top: 0; }
+    section::before { content: ""; position: absolute; top: -1px; left: 0; width: 72px; height: 3px; border-radius: 3px; background: var(--blue-grad); }
+    section:first-of-type::before { display: none; }
+    .eyebrow { display: block; width: max-content; margin: 0 0 8px; color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .14em; font-variant-numeric: tabular-nums;
+      background: var(--blue-grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    h2 { margin: 0 0 12px; color: var(--blue-deep); font-size: 23px; line-height: 1.45; font-weight: 700; letter-spacing: .005em; }
+    h3 { margin: 34px 0 8px; padding-left: 13px; border-left: 3px solid var(--blue-bright); color: var(--blue-deep); font-size: 16.5px; line-height: 1.5; font-weight: 700; }
+    .wrap .lead { margin: 0 0 20px; color: var(--sub); font-size: 14.5px; }
+
+    /* 5. Cards: the header is a gradient band; padding lives on .card-body, not on .card. */
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); margin: 20px 0; }
+    .card { border: 1px solid var(--line); border-radius: 16px; background: #fff; overflow: hidden; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+    .card:hover { border-color: var(--blue-line); box-shadow: 0 6px 22px rgba(14, 13, 106, .07); transform: translateY(-2px); }
+    /* Child selectors only: a descendant selector would paint the headings of nested parts. */
+    .card > h4 { margin: 0; padding: 11px 18px; background-image: var(--blue-grad); color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; line-height: 1.5; }
+    .card > h4 span { margin-left: 8px; font-size: 11.5px; font-weight: 600; opacity: .82; }
+    .card.muted > h4 { background-image: var(--gray-grad); }
+    .card-body { padding: 16px 20px 17px; }
+    .card-body > :first-child { margin-top: 0; }
+    .card-body > :last-child { margin-bottom: 0; }
+    .wrap .card-body p { margin: 6px 0; color: var(--sub); font-size: 14px; line-height: 1.8; }
+
+    /* Callout: one light surface, no thick left rule on top of it. */
+    .callout { margin: 22px 0; padding: 18px 22px; border: 1px solid #f2e2b5; border-radius: 14px; background: var(--gold-soft); font-size: 14.5px; }
+    .callout b { color: var(--gold-deep); }
+    .callout > :first-child { margin-top: 0; }
+    .callout > :last-child { margin-bottom: 0; }
+
+    /* 4. Tables: no vertical rules, one gradient on thead, no min-width. */
+    .table-wrap { margin: 20px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; -webkit-overflow-scrolling: touch; }
+    .wrap table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .wrap thead { background-image: var(--blue-grad); }
+    .wrap th { padding: 13px 16px; border: 0; background: transparent; color: #fff; font-weight: 600; letter-spacing: .02em; text-align: left; }
+    .wrap td { padding: 13px 16px; border: 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.75; }
+    .wrap tbody tr:last-child td { border-bottom: 0; }
+    /* A table inside a card drops its band: gradient bands never nest. Keep these three lines. */
+    .card thead { background-image: none; background: var(--soft); }
+    .card th { color: var(--blue-deep); border-bottom: 1px solid var(--blue-line); }
+    .card tbody tr:first-child td { border-top: 0; }
+
+    /* Before/After: side by side, same scope on both sides, mark only the changed words. */
+    .ba { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; margin: 18px 0; }
+    .ba > section { padding: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; overflow: hidden; }
+    .ba > section::before { display: none; }
+    .ba > section.after { border-color: var(--blue-line); box-shadow: 0 2px 12px rgba(10, 70, 149, .06); }
+    .ba > section > h5 { margin: 0; padding: 11px 15px 10px; border-bottom: 1px solid var(--line); background: #fff; font-size: 0; }
+    .ba > section.after > h5 { border-bottom-color: var(--blue-line); }
+    .ba > section > h5 span { display: inline-block; padding: 2px 11px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: .09em; line-height: 1.75; }
+    .ba > section.before > h5 span { background: var(--soft); color: var(--mut); }
+    .ba > section.after > h5 span { background: var(--blue-soft); color: var(--blue); }
+    .ba .ba-body { padding: 14px 16px 15px; }
+    .ba mark { padding: 0 .15em; border-radius: 2px; background: var(--gold-soft); }
+
+    /* Decision request: a red box in the item itself, and a label on the smallest heading that holds it. */
+    .decide { margin: 18px 0; padding: 16px 20px; border: 1.5px solid #e0a8a8; border-radius: 14px; background: #fdf6f6; }
+    .h-judge { display: inline-block; margin-left: 8px; padding: 2px 8px; border: 1px solid #e0a8a8; border-radius: 999px; background: #fdeaea; color: #a03030; font-size: 11.5px; font-weight: 800; letter-spacing: .04em; white-space: nowrap; vertical-align: middle; }
+
+    /* Figures: inline SVG, tokens only. */
+    .fig { margin: 24px 0; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+    .fig figcaption { margin-top: 12px; color: var(--mut); font-size: 12.5px; line-height: 1.7; text-align: center; }
+    .fig svg { width: 100%; height: auto; }
+
+    .wrap ul, .wrap ol { margin: 12px 0; padding-left: 23px; }
+    .wrap li { margin: 7px 0; }
+    .wrap blockquote { margin: 20px 0; padding: 2px 0 2px 18px; border-left: 2px solid var(--line); color: var(--sub); font-size: 13.8px; }
+    .wrap code { padding: 1.5px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--soft); color: var(--blue-deep); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+    /* Set text and background together in one rule, or .wrap code wins and hides the block. */
+    .wrap pre { overflow-x: auto; padding: 14px 16px; border-radius: 12px; background: #1c1c22; color: #eaeaf0; }
+    .wrap pre code { padding: 0; border: 0; background: transparent; color: #eaeaf0; }
+    .note { margin: -8px 0 0; color: var(--mut); font-size: 12.5px; line-height: 1.8; }
+
+    footer { margin: 56px 0 0; padding: 28px 0 40px; border-top: 1px solid var(--line); color: var(--mut); font-size: 12.5px; line-height: 1.9; }
+
+    @media (max-width: 760px) {
+      .ba { grid-template-columns: 1fr; }
     }
-
-    .hero {
-      position: relative;
-      overflow: hidden;
-      padding: clamp(30px, 6vw, 64px);
-      border-radius: var(--radius-lg);
-      background: var(--hero-gradient);
-      color: #fff;
-      box-shadow: var(--shadow);
+    @media (max-width: 620px) {
+      body { font-size: 15px; }
+      .hero { padding-bottom: 34px; }
+      .hero h1 { font-size: 23px; }
+      h2 { font-size: 20px; }
+      section { padding-top: 38px; }
+      .toc { padding: 18px 20px; }
     }
-
-    .hero::after {
-      content: "";
-      position: absolute;
-      right: -72px;
-      bottom: -112px;
-      width: 280px;
-      aspect-ratio: 1;
-      border: 48px solid rgba(255, 255, 255, 0.08);
-      border-radius: 50%;
-      pointer-events: none;
-    }
-
-    .eyebrow {
-      margin: 0 0 14px;
-      color: #ffe39a;
-      font-size: 0.78rem;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-
-    h1 {
-      max-width: 760px;
-      margin: 0;
-      font-size: clamp(2rem, 6vw, 3.75rem);
-      line-height: 1.14;
-      letter-spacing: -0.03em;
-    }
-
-    .lead {
-      max-width: 720px;
-      margin: 22px 0 0;
-      color: rgba(255, 255, 255, 0.88);
-      font-size: clamp(1rem, 2.2vw, 1.18rem);
-    }
-
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 28px;
-    }
-
-    .meta span {
-      padding: 5px 11px;
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.10);
-      color: rgba(255, 255, 255, 0.9);
-      font-size: 0.78rem;
-      font-weight: 650;
-    }
-
-    main { display: grid; gap: 22px; margin-top: 24px; }
-    main > * { min-width: 0; }
-
-    .section {
-      padding: clamp(24px, 5vw, 44px);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      background: var(--surface);
-      box-shadow: 0 8px 28px rgba(16, 42, 67, 0.05);
-    }
-
-    .section-heading {
-      display: grid;
-      grid-template-columns: 38px minmax(0, 1fr);
-      gap: 14px;
-      align-items: start;
-      margin-bottom: 22px;
-    }
-
-    .section-number {
-      display: grid;
-      width: 38px;
-      height: 38px;
-      place-items: center;
-      border-radius: 12px;
-      background: var(--hero-gradient);
-      color: #fff;
-      font-size: 0.78rem;
-      font-weight: 800;
-    }
-
-    h2 {
-      margin: 0;
-      color: var(--blue-deep);
-      font-size: clamp(1.35rem, 3vw, 1.85rem);
-      line-height: 1.4;
-      letter-spacing: -0.015em;
-    }
-
-    h3 { margin: 0 0 8px; color: var(--blue); font-size: 1.05rem; line-height: 1.5; }
-    p { margin: 0 0 1em; }
-    p:last-child { margin-bottom: 0; }
-
-    .summary-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-    }
-
-    .metric {
-      min-width: 0;
-      padding: 20px;
-      border: 1px solid var(--blue-line);
-      border-radius: var(--radius-md);
-      background: linear-gradient(180deg, #fff 0%, var(--blue-soft) 100%);
-    }
-
-    .metric strong { display: block; color: var(--blue-deep); font-size: clamp(1.45rem, 4vw, 2.15rem); line-height: 1.2; }
-    .metric span { display: block; margin-top: 8px; color: var(--muted); font-size: 0.86rem; line-height: 1.55; }
-
-    .callout {
-      margin-top: 22px;
-      padding: 18px 20px;
-      border-left: 5px solid var(--gold);
-      border-radius: 0 var(--radius-md) var(--radius-md) 0;
-      background: var(--gold-soft);
-      color: #583e08;
-    }
-
-    .callout strong { color: var(--gold-deep); }
-
-    .table-wrap {
-      width: 100%;
-      overflow-x: auto;
-      border: 1px solid var(--blue-line);
-      border-radius: var(--radius-md);
-      -webkit-overflow-scrolling: touch;
-    }
-
-    table { width: 100%; min-width: 620px; border-collapse: collapse; background: #fff; }
-    th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { background: var(--hero-gradient); color: #fff; font-size: 0.84rem; letter-spacing: 0.02em; }
-    tr:last-child td { border-bottom: 0; }
-
-    .timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-    .timeline li { position: relative; padding: 0 0 24px 32px; }
-    .timeline li:last-child { padding-bottom: 0; }
-    .timeline li::before { content: ""; position: absolute; top: 0.55em; left: 4px; width: 12px; height: 12px; border: 4px solid var(--blue-soft); border-radius: 50%; background: var(--blue-mid); }
-    .timeline li::after { content: ""; position: absolute; top: 1.45em; bottom: 0; left: 9px; width: 2px; background: var(--blue-line); }
-    .timeline li:last-child::after { display: none; }
-    .timeline time { display: block; color: var(--gold-deep); font-size: 0.78rem; font-weight: 800; }
-
-    .pair-list { display: grid; gap: 14px; }
-    .pair { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
-    .pair > div { padding: 18px 20px; }
-    .pair > div:first-child { background: var(--blue-soft); color: var(--blue-deep); font-weight: 750; }
-
-    footer { padding: 22px 4px 0; color: var(--muted); font-size: 0.78rem; text-align: center; }
-
-    @media (max-width: 720px) {
-      .page { width: min(100% - 20px, 940px); padding-top: max(10px, env(safe-area-inset-top)); }
-      .hero, .section { border-radius: 18px; }
-      .summary-grid { grid-template-columns: 1fr; }
-      .pair { grid-template-columns: 1fr; }
-      .pair > div:first-child { border-bottom: 1px solid var(--blue-line); }
-    }
-
-    @media (max-width: 420px) {
-      .hero { padding: 26px 22px 30px; }
-      .section { padding: 24px 20px; }
-      .section-heading { grid-template-columns: 32px minmax(0, 1fr); gap: 11px; }
-      .section-number { width: 32px; height: 32px; border-radius: 10px; }
-      .meta { margin-top: 22px; }
-    }
-
     @media print {
-      html, body { background: #fff; }
-      .page { width: 100%; padding: 0; }
-      .hero, .section { box-shadow: none; break-inside: avoid; }
+      .card:hover { transform: none; box-shadow: none; }
+      section, .card, .fig { break-inside: avoid; }
     }
   </style>
 </head>
 <body>
-  <div class="page">
-    <header class="hero">
-      <p class="eyebrow">{{EYEBROW}}</p>
+  <div class="hero">
+    <div class="hero-in">
+      <span class="kicker">{{KICKER}}</span>
       <h1>{{PAGE_TITLE}}</h1>
-      <p class="lead">{{LEAD}}</p>
-      <div class="meta" aria-label="資料情報">
-        <span>{{META_1}}</span>
-        <span>{{META_2}}</span>
+      <p class="sub">{{SUBTITLE}}</p>
+      <div class="meta">{{META}}</div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <nav class="toc" aria-label="目次">
+      <h2>目次</h2>
+      <ol>
+        <li><a href="#s1"><span class="num">01</span>{{SECTION_1_TITLE}}</a></li>
+        <li><a href="#s2"><span class="num">02</span>{{SECTION_2_TITLE}}</a></li>
+      </ol>
+    </nav>
+
+    <section id="s1">
+      <span class="eyebrow">01</span>
+      <h2>{{SECTION_1_TITLE}}</h2>
+      <p class="lead">{{SECTION_1_LEAD}}</p>
+      <figure class="fig">
+        <!-- Replace with a diagram of the flow, schedule, or structure. Keep every shape inside the viewBox. -->
+        <svg viewBox="0 0 640 120" role="img" aria-label="{{FIGURE_ALT}}">
+          <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a8a8b2"/></marker></defs>
+          <rect x="10" y="30" width="170" height="60" rx="14" fill="#eaf2fb"/>
+          <rect x="235" y="30" width="170" height="60" rx="14" fill="#0a4695"/>
+          <rect x="460" y="30" width="170" height="60" rx="14" fill="#f7f8fa" stroke="#a8a8b2" stroke-dasharray="5 4"/>
+          <line x1="180" y1="60" x2="232" y2="60" stroke="#a8a8b2" stroke-width="2" marker-end="url(#arrow)"/>
+          <line x1="405" y1="60" x2="457" y2="60" stroke="#a8a8b2" stroke-width="2" marker-end="url(#arrow)"/>
+          <text x="95" y="66" text-anchor="middle" font-size="15" font-weight="700" fill="#0e0d6a">{{STEP_1}}</text>
+          <text x="320" y="66" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">{{STEP_2}}</text>
+          <text x="545" y="66" text-anchor="middle" font-size="15" font-weight="700" fill="#767680">{{STEP_3}}</text>
+        </svg>
+        <figcaption>{{FIGURE_CAPTION}}</figcaption>
+      </figure>
+      <div class="callout"><b>{{CALLOUT_LABEL}}</b> {{CALLOUT_BODY}}</div>
+    </section>
+
+    <section id="s2">
+      <span class="eyebrow">02</span>
+      <h2>{{SECTION_2_TITLE}}</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>{{COLUMN_1}}</th><th>{{COLUMN_2}}</th></tr></thead>
+          <tbody><tr><td>{{CELL_1}}</td><td>{{CELL_2}}</td></tr></tbody>
+        </table>
       </div>
-    </header>
-
-    <main>
-      <section class="section">
-        <div class="section-heading">
-          <span class="section-number" aria-hidden="true">01</span>
-          <h2>{{SECTION_1_TITLE}}</h2>
+      <div class="grid">
+        <div class="card">
+          <h4>{{CARD_1_TITLE}}</h4>
+          <div class="card-body"><p>{{CARD_1_BODY}}</p></div>
         </div>
-        <p>{{SECTION_1_BODY}}</p>
-        <div class="callout"><strong>{{CALLOUT_LABEL}}</strong> {{CALLOUT_BODY}}</div>
-      </section>
-
-      <section class="section">
-        <div class="section-heading">
-          <span class="section-number" aria-hidden="true">02</span>
-          <h2>{{SECTION_2_TITLE}}</h2>
+        <div class="card muted">
+          <h4>{{CARD_2_TITLE}}</h4>
+          <div class="card-body"><p>{{CARD_2_BODY}}</p></div>
         </div>
-        <div class="summary-grid">
-          <article class="metric"><strong>{{METRIC_1_VALUE}}</strong><span>{{METRIC_1_LABEL}}</span></article>
-          <article class="metric"><strong>{{METRIC_2_VALUE}}</strong><span>{{METRIC_2_LABEL}}</span></article>
-          <article class="metric"><strong>{{METRIC_3_VALUE}}</strong><span>{{METRIC_3_LABEL}}</span></article>
-        </div>
-      </section>
+      </div>
+    </section>
 
-      <!-- Replace this example section with a table, timeline, pair-list, or prose section as the content requires. -->
-    </main>
-
+    <!-- Remove unused components. For a revision, use .ba; for a decision, put .decide in the item and .h-judge on its heading. -->
     <footer>{{FOOTER}}</footer>
   </div>
 </body>

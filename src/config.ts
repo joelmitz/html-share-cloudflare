@@ -10,24 +10,36 @@ export interface PageConfig {
   repository?: string;
   stream?: string;
   streamLabel?: string;
+  /** 進行中チップに出すテーマの短い名前。同じテーマのどれか1ページに書けばよい */
+  streamChip?: string;
 }
 
 /**
- * 進行中の棚の1項目。ページではなく「まだ終わっていない仕事」の単位で持つ。
- * stream を書けばそのテーマの最新ページへ、url を書けばそのリンクへ飛ぶ（どちらか一方）。
+ * 進行中フィルターの1項目。ページではなく「まだ終わっていない仕事」の単位で持つ。
+ * stream を書けばチップでそのテーマに絞り込み、url は絞り込み中の見出しにリンクとして出す（少なくとも一方）。
  */
 export interface ShelfItemConfig {
   id: string;
-  title: string;
+  /** 省略すると、テーマの項目はテーマのチップ名（streamChip）、url だけの項目は id を名前にする */
+  title?: string;
   stream?: string;
   url?: string;
-  /** 締切（YYYY-MM-DD）。翌日を過ぎると棚から自動で消える */
+  /**
+   * url だけの項目の締切（YYYY-MM-DD）。翌日を過ぎると進行中フィルターから自動で消える。
+   * テーマの項目は content.streamDues が正本で、そちらがあれば due は使わない
+   */
   due?: string;
   note?: string;
-  /** url 項目を棚へ載せた日（YYYY-MM-DD）。締切なしの並び順と「◯日動きなし」に使う */
+  /** url 項目を進行中フィルターへ載せた日（YYYY-MM-DD）。締切なしの並び順と「◯日動きなし」に使う */
   added?: string;
-  /** 書いておくと棚に出さない */
+  /** 書いておくと進行中フィルターに出さない */
   done: boolean;
+}
+
+/** テーマの期限の1件。what は「リハーサル」「本番」のような何の日か */
+export interface StreamDue {
+  date: string;
+  what: string | null;
 }
 
 export interface HtmlShareConfig {
@@ -57,8 +69,13 @@ export interface HtmlShareConfig {
     ogImageUrl?: string | false;
     /** カードの大きさ。省略すると summary（各媒体でいちばん小さいカード） */
     ogCardType?: 'summary' | 'summary_large_image';
-    /** 進行中の棚。省略すると棚を出さない */
+    /** 進行中フィルター。省略すると進行中フィルターを出さない */
     shelf?: ShelfItemConfig[];
+    /**
+     * テーマキー → 期限の一覧。進行中フィルターの項目にも、画面の押しピンで足したテーマにも同じ期限が出る。
+     * 画面が今日以降でいちばん近い日を選ぶので、節目が複数あれば全部並べる
+     */
+    streamDues?: Record<string, StreamDue[]>;
   };
   configFile: string;
   baseDir: string;
@@ -96,7 +113,7 @@ function httpsUrl(value: unknown, name: string): string {
   return parsed.toString();
 }
 
-/** 棚の締切や追加日。YAML が日付として読んだ値も文字列へ戻す */
+/** 進行中フィルターの締切や追加日。YAML が日付として読んだ値も文字列へ戻す */
 function isoDate(value: unknown, name: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const result = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).trim();
@@ -106,7 +123,7 @@ function isoDate(value: unknown, name: string): string | undefined {
   return result;
 }
 
-/** 棚のリンク。画面から開く先なので http(s) だけを許す */
+/** 進行中フィルターのリンク。画面から開く先なので http(s) だけを許す */
 function linkUrl(value: unknown, name: string): string {
   const result = text(value, name);
   let parsed: URL;
@@ -117,6 +134,34 @@ function linkUrl(value: unknown, name: string): string {
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error(`${name} must use http or https`);
   return parsed.toString();
+}
+
+/**
+ * content.streamDues を読む。書式は { テーマキー: { 日付: 何の日 } }。日付だけの配列も受ける。
+ * 空の {} は「期限なし」として受け、日付順に並べ直す
+ */
+function streamDuesConfig(value: unknown): Record<string, StreamDue[]> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('content.streamDues must be a map of theme keys');
+  const out: Record<string, StreamDue[]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const name = `content.streamDues.${key}`;
+    const pairs: [unknown, unknown][] = raw === null || raw === undefined
+      ? []
+      : Array.isArray(raw)
+        ? raw.map((date) => [date, null])
+        : typeof raw === 'object'
+          ? Object.entries(raw as Record<string, unknown>)
+          : [[raw, null]];
+    out[key] = pairs
+      .map(([date, what]) => ({
+        date: isoDate(date, name) ?? '',
+        what: what === null || what === undefined || String(what).trim() === '' ? null : String(what).trim(),
+      }))
+      .filter((due) => due.date !== '')
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+  return out;
 }
 
 function shelfItems(value: unknown): ShelfItemConfig[] {
@@ -132,10 +177,10 @@ function shelfItems(value: unknown): ShelfItemConfig[] {
     seen.add(id);
     const stream = typeof record.stream === 'string' && record.stream.trim() ? record.stream.trim() : undefined;
     const url = record.url === undefined || record.url === null ? undefined : linkUrl(record.url, `${name}.url`);
-    if (Boolean(stream) === Boolean(url)) throw new Error(`${name} needs exactly one of stream or url`);
+    if (!stream && !url) throw new Error(`${name} needs stream or url`);
     return {
       id,
-      title: typeof record.title === 'string' && record.title.trim() ? record.title.trim() : id,
+      title: typeof record.title === 'string' && record.title.trim() ? record.title.trim() : undefined,
       stream,
       url,
       due: isoDate(record.due, `${name}.due`),
@@ -216,6 +261,7 @@ export function loadConfig(file?: string): HtmlShareConfig {
           repository: typeof page.repository === 'string' ? page.repository.trim() : undefined,
           stream: typeof page.stream === 'string' ? page.stream.trim() : undefined,
           streamLabel: typeof page.streamLabel === 'string' ? page.streamLabel.trim() : undefined,
+          streamChip: typeof page.streamChip === 'string' && page.streamChip.trim() ? page.streamChip.trim() : undefined,
         };
       }),
       ownerLinkDays: positiveInteger(content.ownerLinkDays, 30, 'content.ownerLinkDays'),
@@ -235,6 +281,7 @@ export function loadConfig(file?: string): HtmlShareConfig {
           ? undefined
           : (() => { throw new Error('content.ogCardType must be "summary" or "summary_large_image"'); })(),
       shelf: shelfItems(content.shelf),
+      streamDues: streamDuesConfig(content.streamDues),
     },
     configFile,
     baseDir: path.dirname(configFile),

@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { HtmlShareConfig, PageConfig, ShelfItemConfig } from './config.js';
+import type { HtmlShareConfig, PageConfig, ShelfItemConfig, StreamDue } from './config.js';
 import { resolveFromConfig, validatedRoots } from './config.js';
 
 function packageRoot(): string {
@@ -55,14 +55,21 @@ export interface BuiltPage {
   repository: string;
   stream: string;
   streamLabel: string;
+  /** 進行中チップに出す短い名前。streamChip → streamLabel → テーマキーの順で決める */
+  streamChip: string;
   objectKey: string;
 }
 
-/** 棚の1行。stream 項目は最新ページの slug・件数・最終更新、url 項目はリンクと追加日を持つ */
+/**
+ * 進行中フィルターの1行。stream 項目は最新ページの slug・件数・最終更新、url だけの項目はリンクと追加日を持つ。
+ * stream と url の両方を持つ項目は、url を絞り込み中の見出しのリンクに使う
+ */
 export interface ShelfEntry {
   id: string;
   title: string;
+  /** build 時点の直近の期限。画面は dues から開くたびに選び直す */
   due: string | null;
+  dues: StreamDue[];
   note: string | null;
   stream?: string;
   slug?: string;
@@ -77,40 +84,86 @@ export interface BuildManifest {
   maximumShareDays: number;
   pages: BuiltPage[];
   shelf: ShelfEntry[];
+  /** テーマキー → まだ生きている期限。押しピンで足したテーマもここから期限を引く */
+  streamDues: Record<string, StreamDue[]>;
 }
 
 const DAY_MS = 86400e3;
 
-/** 棚の日付は JST の暦日で比べる */
+/** 進行中フィルターの日付は JST の暦日で比べる */
 function jstToday(now: Date): string {
   return new Date(now.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
 }
 
+function addDays(date: string, days: number): string {
+  return new Date(Date.parse(date) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** まだ生きている期限。締切当日の翌日までは「昨日まで」として残す */
+export function liveDues(dues: StreamDue[], now = new Date()): StreamDue[] {
+  const cutoff = addDays(jstToday(now), -1);
+  return dues.filter((due) => due.date >= cutoff);
+}
+
 /**
- * 進行中の棚を manifest 用に解決する。
- * done を書いた項目と、締切の翌日を過ぎた項目はここで落とす（台帳から消し忘れても棚に残らない）。
+ * 直近の期限。今日以降の最初の日、無ければ昨日の日。web/app/index.html の nextDue と同じ規則で、
+ * 選ぶのを画面側にしているので、節目を過ぎた翌朝には publish し直さなくても次の日へ繰り上がる
+ */
+export function nextDue(dues: StreamDue[], now = new Date()): StreamDue | null {
+  const today = jstToday(now);
+  const upcoming = dues.find((due) => due.date >= today);
+  if (upcoming) return upcoming;
+  const yesterday = addDays(today, -1);
+  return [...dues].reverse().find((due) => due.date === yesterday) ?? null;
+}
+
+/**
+ * 進行中フィルターを manifest 用に解決する。
+ * done を書いた項目と、締切の翌日を過ぎた項目はここで外す（台帳から消し忘れても進行中フィルターに残らない）。
  * 締切の近い順に並べ、締切の無いものは後ろで最近動いた順にする。
  */
-export function buildShelf(items: ShelfItemConfig[], pages: BuiltPage[], now = new Date()): ShelfEntry[] {
-  const today = Date.parse(jstToday(now));
+export function buildShelf(
+  items: ShelfItemConfig[],
+  pages: BuiltPage[],
+  now = new Date(),
+  streamDues: Record<string, StreamDue[]> = {},
+): ShelfEntry[] {
   const out: ShelfEntry[] = [];
   for (const item of items) {
     if (item.done) continue;
-    if (item.due && Date.parse(item.due) + DAY_MS < today) continue;
-    const entry: ShelfEntry = { id: item.id, title: item.title, due: item.due ?? null, note: item.note ?? null, last: null };
+    // テーマの項目はテーマの期限が正本。テーマ側に無いときだけ項目の due を読む
+    const fromStream = item.stream !== undefined && Object.hasOwn(streamDues, item.stream);
+    if (fromStream && item.due) {
+      console.warn(`content.shelf: ${item.id} の due は使いません。期限は content.streamDues.${item.stream} に書いてください`);
+    }
+    const allDues = fromStream ? streamDues[item.stream as string] : item.due ? [{ date: item.due, what: null }] : [];
+    const dues = liveDues(allDues, now);
+    // 期限を持っていた項目は、最後の日の翌日を過ぎたら落とす
+    if (allDues.length > 0 && dues.length === 0) continue;
+    const entry: ShelfEntry = {
+      id: item.id,
+      title: item.title ?? item.id,
+      due: nextDue(dues, now)?.date ?? null,
+      dues,
+      note: item.note ?? null,
+      last: null,
+    };
     if (item.stream) {
       const inStream = pages
         .filter((page) => page.stream === item.stream)
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
       if (inStream.length === 0) {
-        console.warn(`content.shelf: ${item.id} のテーマ ${item.stream} にページがないので、棚に出しません`);
+        console.warn(`content.shelf: ${item.id} のテーマ ${item.stream} にページがないので、進行中フィルターに出しません`);
         continue;
       }
+      // テーマの項目は title を書かなければテーマのチップ名を使う（名前を二重に管理しない）
+      if (!item.title) entry.title = inStream[0].streamChip;
       Object.assign(entry, {
         stream: item.stream,
         slug: inStream[0].slug,
         count: inStream.length,
         last: inStream[0].updatedAt,
+        ...(item.url ? { url: item.url } : {}),
       });
     } else if (item.url) {
       Object.assign(entry, { url: item.url, last: item.added ?? null });
@@ -125,6 +178,43 @@ export function buildShelf(items: ShelfItemConfig[], pages: BuiltPage[], now = n
     return String(right.last ?? '').localeCompare(String(left.last ?? ''));
   });
   return out;
+}
+
+/** チップ名の長さの上限。全角1・半角0.5で数える */
+export const CHIP_MAX_WIDTH = 11;
+
+/** チップ名の長さ。全角1・半角0.5で数える。「Q3ロードマップ説明会」が10 */
+export function chipWidth(value: string): number {
+  return [...value].reduce((width, char) => width + (char.charCodeAt(0) < 0x80 ? 0.5 : 1), 0);
+}
+
+export interface StreamChipSource {
+  stream: string;
+  streamLabel?: string;
+  streamChip?: string;
+}
+
+/**
+ * テーマごとのチップ名を決める。同じテーマで最初に書かれた streamChip を使う。
+ * 見出し（streamLabel）はあるのにチップ名が無いテーマと、チップ名が長すぎるテーマは警告にする（失敗にはしない）
+ */
+export function resolveStreamChips(sources: StreamChipSource[]): { chips: Map<string, string>; warnings: string[] } {
+  const chips = new Map<string, string>();
+  const labeled = new Set<string>();
+  for (const source of sources) {
+    if (source.streamLabel) labeled.add(source.stream);
+    if (source.streamChip && !chips.has(source.stream)) chips.set(source.stream, source.streamChip);
+  }
+  const warnings: string[] = [];
+  const missing = [...labeled].filter((stream) => !chips.has(stream));
+  if (missing.length > 0) {
+    warnings.push(`content.pages: streamChip（進行中チップの短い名前）が無いテーマ: ${missing.join(' / ')}`);
+  }
+  const long = [...chips].filter(([, name]) => chipWidth(name) > CHIP_MAX_WIDTH);
+  if (long.length > 0) {
+    warnings.push(`content.pages: streamChip が長すぎるテーマ（全角${CHIP_MAX_WIDTH}字まで）: ${long.map(([stream, name]) => `${stream}「${name}」`).join(' / ')}`);
+  }
+  return { chips, warnings };
 }
 
 export function slugify(value: string): string {
@@ -313,7 +403,7 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
   mkdirSync(contentRoot, { recursive: true });
   const ogImageUrl = resolveOgImage(config, contentRoot);
   const used = new Set<string>();
-  const pages = config.content.pages.map((page) => {
+  const drafts = config.content.pages.map((page) => {
     const source = pagePath(config, page);
     const sourceReal = realpathSync(source);
     const html = bundleHtml(sourceReal, roots, config.content.maximumAssetBytes, {
@@ -344,12 +434,25 @@ export function buildSite(config: HtmlShareConfig, buildRoot: string): BuildMani
       objectKey: `pages/${slug}/index.html`,
     };
   });
+  const { chips, warnings } = resolveStreamChips(config.content.pages.map((page, index) => ({
+    stream: drafts[index].stream,
+    streamLabel: page.streamLabel,
+    streamChip: page.streamChip,
+  })));
+  for (const warning of warnings) console.warn(warning);
+  const pages: BuiltPage[] = drafts.map((page) => ({
+    ...page,
+    streamChip: chips.get(page.stream) ?? page.streamLabel,
+  }));
   const manifest = {
     generatedAt: new Date().toISOString(),
     internalSharing: config.content.allowedInternalCidrs.length > 0,
     maximumShareDays: config.content.maximumShareDays,
     pages,
-    shelf: buildShelf(config.content.shelf ?? [], pages),
+    shelf: buildShelf(config.content.shelf ?? [], pages, new Date(), config.content.streamDues ?? {}),
+    streamDues: Object.fromEntries(Object.entries(config.content.streamDues ?? {})
+      .map(([key, dues]) => [key, liveDues(dues)] as const)
+      .filter(([, dues]) => dues.length > 0)),
   };
   writeFileSync(path.join(buildRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;

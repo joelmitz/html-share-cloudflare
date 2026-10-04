@@ -431,14 +431,11 @@
     issue.textContent = '発行中…';
     let generatedUrl = '';
     try {
+      const shareBody = JSON.stringify({ slug: currentPage.slug, scope: mode === 'i' ? 'internal' : 'public', days });
       const response = await fetch('/api/owner/shares', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          slug: currentPage.slug,
-          scope: mode === 'i' ? 'internal' : 'public',
-          days,
-        }),
+        headers: { 'content-type': 'application/json', 'x-amz-content-sha256': await sha256(shareBody) },
+        body: shareBody,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.url) throw new Error(payload.error ?? '共有URLを発行できませんでした');
