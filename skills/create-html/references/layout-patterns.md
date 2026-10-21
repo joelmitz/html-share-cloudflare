@@ -11,6 +11,18 @@ Use for reports, recommendations, and meeting summaries.
 3. Main sections: one claim per section with evidence directly below it.
 4. Closing: decision, conclusion, or next action only when the source material calls for it.
 
+## Proposal
+
+Use when the page asks other people to act on something, not when it reports what you found. Research order (current state, constraints, option comparison, conclusion) is your own thinking process; it does not move the reader. Build the page in this order instead:
+
+1. Problem: who is stuck on what today.
+2. Obstacle: why the current way does not get through.
+3. Proposal: what to do, decided as one option. Do not list alternatives.
+4. Plan: who does what, by when, and how far.
+5. What to agree on in the meeting.
+
+Give each of these sections its own figure, about five in total; one comparison table for the whole page reads as too few visuals. Explanations can be generous, because the readers do not share the background. Leave out your own deliberation, rejected options, and status labels such as "unapproved".
+
 ## Comparison
 
 Use a table when the same fields repeat across three or more options. Put evaluation criteria in the first column and options across the remaining columns. Highlight one recommendation only when the source supports it.
@@ -46,6 +58,9 @@ Use this for any difference between two versions: a revision, an old and new edi
 - Put a `.h-judge` label ("Decision 2/4") on the smallest heading that directly contains the box, inline after the heading text. The label marks the location, the box holds the content.
 - A short count in the lead ("four decisions, in the red boxes below") is fine.
 - Include the real material the decision is about: the full paragraph for text, a rendered image for layout or visuals. Do not ask for a judgment from a description.
+- Real material means the one or two images each decision needs, chosen so the decision box next to them says what to look at. A row of candidate images with no decision attached leaves the reader unsure what is being asked.
+- Count the decisions before building. Sections with no decision shrink to one table or a few lines, the hero headline states how many decisions the page asks for, and the decision sections come first.
+- When proposing to add, move, or remove an item in a sequence (slides, steps, chapters), show two or three neighbors on each side in one strip and mark where the candidate goes. Candidates shown alone cannot be judged in their flow.
 
 ## Review checklist
 
@@ -54,6 +69,22 @@ For pages where the reader works through items in order, add a "reviewed" checkb
 ## Pages presented while talking
 
 For a page shown on screen during a conversation, use one column read from top to bottom, keep reference material expanded rather than collapsed, and highlight at most two to four passages per section.
+
+When the page is scrolled through together with the other party:
+
+- Open items taken from an earlier meeting, or a plan you proposed, as a check ("is this still how you see it?"), labeled with their source and date. Do not state them as the other party's facts or goals.
+- Do not add note-taking fields. Notes are taken outside the page.
+- Leave out topics that are outside the meeting's purpose; they take time from the questions the meeting is for.
+
+## Interactive pages
+
+The hero, table of contents, and section layout are for reading. A page the reader operates (a drill, a quiz, a small tool) uses a single-screen app layout instead, so it opens straight into the task:
+
+- Three rows filling `100dvh`: title and progress at the top, one card in the middle, previous and next controls at the bottom. The page itself does not scroll; long explanations scroll inside the card.
+- Settings, scores, and topic switching go into a bottom sheet.
+- Keep the template's color tokens; only the layout changes.
+
+For multiple-choice questions you wrote, count how often the correct option is the longest before delivery and even out lengths until that rate is below chance (25 % with four options), then shuffle the option order. Include distractors close enough that the reader has to weigh two options. Otherwise the answers can be spotted without reading the questions.
 
 ## Monthly calendar
 
