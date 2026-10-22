@@ -51,6 +51,7 @@ Use this for any difference between two versions: a revision, an old and new edi
 - Keep unchanged items around the change so the reader sees where it happens in the flow. For an added or removed item, leave the other side with an explicit "not present" note rather than closing up the rows.
 - Compare layouts, pages, and slides with images of the real thing on both sides, not a description.
 - Keep both sides on white. Role comes from the pill label and the border; a sunk gray surface makes the before side look disabled.
+- When a revision answers feedback from someone else, give every change its origin: whose comment, when, and what it said. Open with a short timeline of the exchange and order the Before/After cards by where each falls in it. A list of differences alone becomes unreadable once the reader has forgotten the exchange.
 
 ## Requesting a decision
 

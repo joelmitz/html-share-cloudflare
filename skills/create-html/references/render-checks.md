@@ -57,7 +57,7 @@ If it overflows, find the element whose `getBoundingClientRect().right` exceeds 
 
 ## Labels in SVG figures
 
-`issues` must be an empty array. It lists labels that overlap each other, leave the `viewBox`, or stick out of the smallest box around them. Lines and branches that cross a label are not detected, so look at each figure in a screenshot at desktop width and at 390 px as well.
+`issues` must be an empty array. It lists labels that overlap each other, leave the `viewBox`, or stick out of the smallest box around them. Run the next snippet as well for labels that sit on lines or dark fills. Branches that stick out without touching a label are not detected, so look at each figure in a screenshot at desktop width and at 390 px as well.
 
 ```javascript
 (() => {
@@ -91,6 +91,80 @@ If it overflows, find the element whose `getBoundingClientRect().right` exceeds 
 ```
 
 `getBBox()` ignores `transform`. If a figure positions groups with `transform`, compare `getBoundingClientRect()` instead.
+
+## Labels on dark lines and dark fills
+
+`issues` must be an empty array. It samples points inside each label and finds the topmost shape drawn before it at each point. Only dark shapes count (relative luminance below 0.5), so light grid lines and pale cards do not trigger it. A label on a dark stroke is reported. A label on a dark fill is reported only when the text is darker than the fill and the contrast ratio is below 4.5, so white text on a dark shape passes. Text with a white halo (`paint-order: stroke` and a stroke of 2 or more) may sit on a line and is skipped. Semi-transparent paint is evaluated as if composited on white; gradients are checked stop by stop.
+
+```javascript
+(() => {
+  const issues = [];
+  const rgb = (c) => { const m = c && c.match(/^rgba?\(([^)]+)\)/); if (!m) return null; const v = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { r: v[0], g: v[1], b: v[2], a: v.length > 3 ? v[3] : 1 }; };
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const dark = (c) => lum(c) < 0.5;
+  const onWhite = (c, a) => ({ r: c.r * a + 255 * (1 - a), g: c.g * a + 255 * (1 - a), b: c.b * a + 255 * (1 - a) });
+  document.querySelectorAll('svg').forEach((svg, i) => {
+    const opacity = (el) => { let o = 1; for (let e = el; e && e !== svg.parentNode; e = e.parentNode) o *= +getComputedStyle(e).opacity; return o; };
+    const hidden = (el) => { for (let e = el; e && e !== svg.parentNode; e = e.parentNode) { const cs = getComputedStyle(e); if (cs.display === 'none' || cs.visibility === 'hidden') return true; } return false; };
+    const paint = (el, prop) => {
+      const cs = getComputedStyle(el), v = cs[prop];
+      if (!v || v === 'none') return null;
+      const a = opacity(el) * +cs[prop + 'Opacity'];
+      if (a < 0.05) return null;
+      const u = v.match(/url\(["']?#([^"')]+)/);
+      if (u) {
+        const g = document.getElementById(u[1]);
+        if (!g) return null;
+        const cols = [...g.querySelectorAll('stop')].map((st) => { const c = rgb(getComputedStyle(st).stopColor); return c && onWhite(c, a * c.a * +getComputedStyle(st).stopOpacity); }).filter(Boolean);
+        return cols.length ? cols : null;
+      }
+      const c = rgb(v);
+      return c && c.a > 0 ? [onWhite(c, a * c.a)] : null;
+    };
+    const shapes = [...svg.querySelectorAll('rect,circle,ellipse,line,polyline,polygon,path')]
+      .filter((e) => !e.closest('defs,marker,clipPath,mask,pattern,symbol') && e.getScreenCTM() && !hidden(e))
+      .map((e) => ({ e, st: paint(e, 'stroke'), fi: paint(e, 'fill'), sw: parseFloat(getComputedStyle(e).strokeWidth) || 0, m: e.getScreenCTM().inverse(), bb: e.getBoundingClientRect() }))
+      .filter((x) => x.st || x.fi);
+    const runs = [...svg.querySelectorAll('text,tspan')].filter((e) => e.closest('svg') === svg && !hidden(e) && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()));
+    runs.forEach((run) => {
+      const cs = getComputedStyle(run), tc = paint(run, 'fill');
+      if (!tc) return;
+      const halo = cs.stroke !== 'none' && parseFloat(cs.strokeWidth) >= 2 && cs.paintOrder.startsWith('stroke');
+      const R = run.getBoundingClientRect();
+      if (R.width < 2 || R.height < 2) return;
+      // The box includes line spacing; trim 20% top and bottom to stay on the glyphs.
+      const x0 = R.left + 1, x1 = R.right - 1, y0 = R.top + R.height * 0.2, y1 = R.bottom - R.height * 0.2;
+      const cand = shapes.filter((x) => { const pad = x.sw * 2; return (run.compareDocumentPosition(x.e) & Node.DOCUMENT_POSITION_PRECEDING) && !x.e.contains(run) && x.bb.left - pad < x1 && x.bb.right + pad > x0 && x.bb.top - pad < y1 && x.bb.bottom + pad > y0; }).reverse();
+      if (!cand.length) return;
+      const hits = new Map();
+      for (let y = y0; y <= y1 + 0.01; y += (y1 - y0) / 4) {
+        for (let x = x0; x <= x1; x += 2) {
+          for (const c of cand) {
+            const pt = new DOMPoint(x, y).matrixTransform(c.m);
+            const k = c.st && c.e.isPointInStroke(pt) ? 'line' : c.fi && c.e.isPointInFill(pt) ? 'fill' : null;
+            if (!k) continue;
+            const key = cand.indexOf(c) + k;
+            hits.set(key, { c, k, n: (hits.get(key)?.n || 0) + 1 });
+            break;
+          }
+        }
+      }
+      const label = (run.tagName === 'tspan' ? run.closest('text') : run).textContent.trim().slice(0, 24);
+      hits.forEach(({ c, k, n }) => {
+        if (n < 2) return;
+        if (k === 'line') {
+          if (!halo && c.st.some(dark)) issues.push(`figure ${i + 1}: "${label}" sits on a dark ${c.e.tagName}`);
+        } else {
+          const f = c.fi.find((f) => dark(f) && lum(tc[0]) <= lum(f) && ratio(f, tc[0]) < 4.5);
+          if (f) issues.push(`figure ${i + 1}: dark text "${label}" on a dark fill (contrast ${ratio(f, tc[0]).toFixed(1)})`);
+        }
+      });
+    });
+  });
+  return [...new Set(issues)];
+})();
+```
 
 ## Calendar
 
