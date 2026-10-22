@@ -73,7 +73,10 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.match(dashboard, /chip: page\.streamChip \?\? pageStreamLabel\(page\)/, 'テーマの短い名前はチップ名から取り、無ければ見出しを使う');
   assert.match(dashboard, /title: summary\.chip, stream: key/, '自分で足したテーマのチップはチップ名で出す');
   assert.match(dashboard, /if \(onDone && on\) \{/, '✕は選択中のチップにだけ出す');
-  assert.match(dashboard, /const text = diff < 0 \? '昨日まで' : diff === 0 \? '今日' : diff === 1 \? '明日' : `\$\{diff\}日`;/, 'チップの締切は短い表記');
+  assert.match(dashboard, /: diff > 30 \? `\$\{Math\.floor\(diff \/ 30\)\}ヶ月` : `\$\{diff\}日`;/, 'チップの締切は短い表記で、30日を超えたら月単位');
+  assert.match(dashboard, /function isFarDue\(due\) \{\s*return Boolean\(due\) && due > jstDay\(30\);/, '期限が30日を超える項目は「ほか◯件」へ畳む');
+  assert.match(dashboard, /if \(isFarDue\(item\.due\) && !shelfFarOpen && shelfFilter !== key\) continue;/, '畳むのは期限が先のものだけで、期限の無い項目と絞り込み中の項目は出す');
+  assert.match(dashboard, /more\.classList\.add\('chip-fold'\)/, '「ほか◯件」のチップはカードの .more と別の名前にする');
   assert.match(dashboard, /if \(showingTrash \|\| filterText\.trim\(\)\) return;/, '削除済みと検索中はチップを出さない');
   assert.match(dashboard, /body\.searching \.chips \{ display: none; \}/);
   assert.match(dashboard, /if \(open && shelfFilter !== null\) \{\s*shelfFilter = null;/, '検索を開いたら絞り込みを解除する');

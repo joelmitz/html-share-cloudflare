@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 // @ts-expect-error plain ESM script without type declarations
 import { checkHtml } from '../skills/create-html/scripts/check-html.mjs';
@@ -46,4 +48,44 @@ test('warns when a page has no figure', () => {
   const { ng, warn } = checkHtml(filled.replace(/<figure[\s\S]*?<\/figure>/, ''));
   assert.deepEqual(ng, []);
   assert.ok(warn.some((line: string) => line.includes('no figure')));
+});
+
+const breads = ['Sourdough', 'Rye', 'Baguette', 'Brioche', 'Ciabatta', 'Focaccia', 'Bagel', 'Croissant', 'Pretzel', 'Challah'];
+const insertInSection2 = (html: string, markup: string) => html.replace('<div class="table-wrap">', `${markup}<div class="table-wrap">`);
+
+test('warns about a long table and names its section', () => {
+  const rows = breads.map((name, i) => `<tr><td>${name}</td><td>${12 + i}</td></tr>`).join('');
+  const { ng, warn } = checkHtml(filled.replace(/<tbody>[\s\S]*?<\/tbody>/, `<tbody>${rows}</tbody>`));
+  assert.deepEqual(ng, []);
+  assert.ok(warn.some((line: string) => /10-row table/.test(line) && line.includes('サンプル section_2_title')), JSON.stringify(warn));
+});
+
+test('warns about a long list but counts nested items separately', () => {
+  const long = `<ul>${breads.slice(0, 8).map((name) => `<li>${name}</li>`).join('')}</ul>`;
+  assert.ok(checkHtml(insertInSection2(filled, long)).warn.some((line: string) => /list of 8 items/.test(line)));
+  const nested = `<ul><li>Breads<ul>${breads.slice(0, 5).map((name) => `<li>${name}</li>`).join('')}</ul></li><li>Cakes</li><li>Drinks</li></ul>`;
+  assert.deepEqual(checkHtml(insertInSection2(filled, nested)).warn, []);
+});
+
+test('warns about list items that open with a bold label and a colon', () => {
+  const labelled = '<ul><li><b>Opening hours:</b> 7:00 to 15:00 on weekdays.</li><li>Rye loaves sell out by noon on Saturdays.</li></ul>';
+  assert.ok(checkHtml(insertInSection2(filled, labelled)).warn.some((line: string) => /bold label and a colon/.test(line)));
+  const plain = '<ul><li><b>Rye</b> sells out by noon on Saturdays.</li></ul>';
+  assert.deepEqual(checkHtml(insertInSection2(filled, plain)).warn, []);
+});
+
+test('reports relative images that do not exist next to the file', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'create-html-'));
+  mkdirSync(path.join(dir, 'photos'));
+  writeFileSync(path.join(dir, 'photos', 'shelf 9.png'), '');
+  const images = [
+    '<img src="photos/shelf%209.png" alt="Bread shelf at opening">',
+    '<img src="photos/shelf-09.png" alt="Bread shelf at closing">',
+    '<img src="https://example.com/oven.png" alt="Oven">',
+    '<img src="data:image/png;base64,AAAA" alt="Dot">',
+  ].join('');
+  const html = insertInSection2(filled, images);
+  const { ng } = checkHtml(html, { baseDir: dir });
+  assert.deepEqual(ng, ['image not found: photos/shelf-09.png']);
+  assert.deepEqual(checkHtml(html).ng, [], 'image paths are checked only when the file location is known');
 });

@@ -3,10 +3,49 @@
 //   node skills/create-html/scripts/check-html.mjs <file.html> [...]
 // Prints NG lines for defects and WARN lines for things to review. Exits 1 when any NG is found.
 // Each check targets a failure that renders silently: the page still opens, but text vanishes,
-// a band disappears, or everything below a point loses its container.
-import { readFileSync } from 'node:fs';
+// a band disappears, an image breaks, or everything below a point loses its container.
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 
-export function checkHtml(source) {
+// Heading text of the closest <h2> before `index`, so a warning names the section it belongs to.
+function sectionAt(body, index) {
+  const heads = [...body.slice(0, index).matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi)];
+  const title = heads.at(-1)?.[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  return title ? title.slice(0, 40) : 'top of page';
+}
+
+// Item count of every list, counting only its own <li> and not those of nested lists.
+function listSizes(body) {
+  const stack = [];
+  const sizes = [];
+  for (const m of body.matchAll(/<(\/?)(ul|ol|li)\b[^>]*>/gi)) {
+    const [closing, tag] = [m[1] === '/', m[2].toLowerCase()];
+    if (tag === 'li') {
+      if (!closing && stack.length) stack.at(-1).items += 1;
+    } else if (!closing) {
+      stack.push({ index: m.index, items: 0 });
+    } else if (stack.length) {
+      sizes.push(stack.pop());
+    }
+  }
+  return sizes;
+}
+
+// Relative image paths that do not exist next to the file. A wrong digit in a generated file name
+// (page-9.png against page-09.png) passes every other check and shows up only as a broken image.
+export function missingImages(source, baseDir) {
+  return [...source.matchAll(/<img\b[^>]*?\ssrc=["']([^"']+)["']/gi)]
+    .map((m) => m[1].trim())
+    .filter((src) => src && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(src))
+    .filter((src) => {
+      const file = src.split(/[?#]/)[0];
+      let decoded = file;
+      try { decoded = decodeURI(file); } catch { /* keep the raw path */ }
+      return !existsSync(path.join(baseDir, decoded));
+    });
+}
+
+export function checkHtml(source, { baseDir } = {}) {
   const ng = [];
   const warn = [];
   const css = [...source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -94,10 +133,26 @@ export function checkHtml(source) {
     if (over.length) ng.push(`svg #${fig} (viewBox ${w}x${h}) has shapes outside: ${over.slice(0, 5).join(' ')}`);
   }
 
+  // Images: checked only when the caller knows where the file lives.
+  if (baseDir) {
+    for (const src of missingImages(source, baseDir)) ng.push(`image not found: ${src}`);
+  }
+
   // Review items, not defects.
   if (!has(/<svg\b/i) && !has(/<img\b/i)) warn.push('no figure on the page; check whether a schedule, flow, or structure would read better as a diagram');
   const tables = (source.match(/<table\b/gi) ?? []).length;
   if (tables > 5) warn.push(`${tables} tables; more than five usually means the structure, not the content, is heavy`);
+  // Busy sections: a long table or list usually means rows were appended after each round of feedback.
+  for (const m of body.matchAll(/<table\b[\s\S]*?<\/table>/gi)) {
+    const rows = (m[0].replace(/<thead\b[\s\S]*?<\/thead>/gi, '').match(/<tr\b/gi) ?? []).length;
+    if (rows >= 10) warn.push(`"${sectionAt(body, m.index)}" has a ${rows}-row table; regroup it into category boxes of up to three items, or a figure`);
+  }
+  for (const list of listSizes(body)) {
+    if (list.items >= 8) warn.push(`"${sectionAt(body, list.index)}" has a list of ${list.items} items; split it into category boxes, or draw a sequence as a figure`);
+  }
+  // List items that open with a bold label and a colon read as a filled-in template.
+  const labelled = body.match(/<li\b[^>]*>\s*<(b|strong)\b[^>]*>[^<]{1,30}[：:]\s*<\/\1>/gi) ?? [];
+  if (labelled.length) warn.push(`${labelled.length} list item(s) start with a bold label and a colon; rewrite each as one plain sentence at the same level of detail`);
   const kb = Buffer.byteLength(source) / 1024;
   if (kb > 1024) warn.push(`page is ${Math.round(kb)} KB; embedded images above about 1 MB slow every later check`);
 
@@ -112,7 +167,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   let failed = false;
   for (const file of files) {
-    const { ng, warn } = checkHtml(readFileSync(file, 'utf8'));
+    const { ng, warn } = checkHtml(readFileSync(file, 'utf8'), { baseDir: path.dirname(path.resolve(file)) });
     for (const line of ng) console.log(`NG   ${file}: ${line}`);
     for (const line of warn) console.log(`WARN ${file}: ${line}`);
     if (!ng.length) console.log(`OK   ${file}`);

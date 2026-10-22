@@ -34,10 +34,17 @@ Turn the user's content into one complete HTML file that is calm, readable, and 
 - Do not make the reader go through the same list twice. If the sections explain items one by one, drop those items from any overview table and use a short diagram or two lines of orientation instead. Do not end with a recap of the same list.
 - Add facts, numbers, and rows freely, but do not add things the reader must decode first: visual codes that need a legend once there are three or more, abstract identifiers such as `S1`/`S2` or `A`/`B`, or the same number restated in several units. Pick one form for each fact.
 - Show numbers as a chart with few series plus a short table of the key values (about five rows).
+- When asked for more information, add figures at the same rate as text. For each added topic, draw whatever is a breakdown, a flow, a contrast, or a sequence; text alone lowers the share of figures and the page gets harder to read.
+- When a section grows after feedback, rebuild it instead of appending below. Open it with one line giving the order of its parts and number its subheadings. Appended tables, lists, and paragraphs stack into a section nobody can scan.
+- Do not put four or more items of the same weight in one box, cell, or list. Split them into category boxes of at most three items, one line each, with shared timing or ownership moved into the box heading. Draw steps and conditions as a numbered step figure, and compare options as one card per option. The checker warns at ten table rows or eight list items.
+- Do not open list items with a bold label and a colon (`<b>Cost:</b> ...`). Write each item as one sentence at the same level of detail as its neighbors; the label pattern reads as a filled-in form and hides uneven detail.
+- Link every source the page draws on (documents, posts, official sites, book pages) where it is used, with `target="_blank" rel="noopener"`, so the reader can open the original without searching. Expand shortened URLs to their destination, make a post's timestamp the link to the post, and never name a source without linking it. Ask before sharing publicly a page that links to someone else's private documents.
 - Add the day of the week to every date, including dates in tables and both ends of a range (`3/2（月）〜3/6（金）`). Compute weekdays with code, never by hand, and recheck weekdays copied from existing material. Calendar grids are the exception because the column already shows the weekday.
 - Start the `<title>` with the specific scope of this page so it can be told apart in a list of similar pages. Put the same scope in the file name.
 - When updating a page after feedback, replace it with the current round only. Keep earlier figure or image comparisons, folded, because the page is the only place those can be compared.
 - A page meant to be handed to a third party as-is contains only the proposal itself. Reasons, comparisons, and verification tables go to the user in chat, not on that page.
+- When the page advises on someone else's document or slides, hand over an outline of which parts change their role and how, plus figures. Do not write replacement scripts, key phrases, or catchphrases; the wording belongs to the person who will say it, and drafted lines tend to replace phrasing that was fine.
+- Write pages for other readers as if they do not know the user. Introduce each person once with their role and affiliation, then use that outward-facing name instead of an insider nickname or "we"; insider subjects make the page read like an internal memo.
 - Never put the user's own commitments, requests to other people, or decisions they have not made into a page others will read.
 
 ## Figures
@@ -56,6 +63,8 @@ Count figures before delivery. A page with no `<svg>` or `<img>` should be recon
 - About two to four figures per page. Explanatory structure diagrams do not count toward the limit of roughly five tables and five sections.
 - Anything unconfirmed or inferred is drawn dashed and labeled as such inside the figure. A figure reads as certain even when the text hedges.
 - A figure supports the text; do not delete the text because a figure now exists.
+- Build figures and tables in the unit of the reader's question. Asked "if X is n, how many Y?", show one row or point per value of X with its Y, and keep the intermediate units of the calculation (currency, person-months) to one line of text. When the reader fixes a condition, remove the options that violate it from both the figure and the table.
+- When labels in a figure overlap, keep the figure's form and move only the overlapping labels. Put labels of narrow bands outside the band and draw them after any shading; move labels that sit on a line to the side the line does not pass. Switching to another chart type throws away what the reader already understood. Then run the label check in [render-checks.md](references/render-checks.md) and look at the figure.
 - For architecture and data flow, a figure is mandatory, one figure per point. Each diagram needs a boundary line for who owns what, a one-line role under every product name, a label on every arrow saying what flows, and, for readers used to another platform, the equivalent they know. Do not substitute a table, ASCII art, or prose.
 - Use inline SVG with a `viewBox`, `<text>` for labels, one shared `<marker>` for arrows, and only the page's color tokens. Keep every shape inside the `viewBox`; the checker verifies this.
 
@@ -67,7 +76,8 @@ Run the static checker on every page, including pages produced by another genera
 node skills/create-html/scripts/check-html.mjs <file.html>
 ```
 
-- It must print `OK`. Read the `WARN` lines too; a missing figure is a warning, not a pass.
+- It must print `OK`. Read the `WARN` lines too; a missing figure, a long table or list, or a label-and-colon list is a warning to fix, not a pass.
+- Run it on the file where it will be served from. It also reports relative image paths that do not exist next to the file, which otherwise show up only as broken images after publishing.
 - Name files explicitly. A shell glob that matches nothing can abort the command and look like a clean result.
 - Do not edit generated HTML with regular-expression replacements. Nested tags stop non-greedy patterns early and silently unbalance the markup. Regenerate the page from its data instead.
 - When reusing CSS from another page, copy only the rules, not the `<style>` tags around them.

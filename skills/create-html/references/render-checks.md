@@ -55,6 +55,43 @@ const de = f.contentDocument.documentElement;
 
 If it overflows, find the element whose `getBoundingClientRect().right` exceeds the viewport and fix the cause: `nowrap`, fixed widths, too many fixed grid columns, or a missing `min-width: 0` on a flex or grid child. Do not hide the overflow with `overflow-x: hidden` on `html` or `body`.
 
+## Labels in SVG figures
+
+`issues` must be an empty array. It lists labels that overlap each other, leave the `viewBox`, or stick out of the smallest box around them. Lines and branches that cross a label are not detected, so look at each figure in a screenshot at desktop width and at 390 px as well.
+
+```javascript
+(() => {
+  const issues = [];
+  document.querySelectorAll('svg').forEach((svg, i) => {
+    const vb = svg.viewBox.baseVal;
+    const labels = [...svg.querySelectorAll('text')].map((t) => ({ text: t.textContent.trim().slice(0, 24), b: t.getBBox() }));
+    const boxes = [...svg.querySelectorAll('rect')].map((r) => r.getBBox());
+    labels.forEach(({ text, b }) => {
+      if (vb && vb.width && (b.x < vb.x || b.y < vb.y || b.x + b.width > vb.x + vb.width || b.y + b.height > vb.y + vb.height)) {
+        issues.push(`figure ${i + 1}: outside the viewBox "${text}"`);
+      }
+      const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+      const around = boxes.filter((r) => cx > r.x && cx < r.x + r.width && cy > r.y && cy < r.y + r.height);
+      if (around.length) {
+        const r = around.reduce((m, x) => (x.width * x.height < m.width * m.height ? x : m));
+        if (b.x < r.x - 1 || b.x + b.width > r.x + r.width + 1) issues.push(`figure ${i + 1}: sticks out of its box "${text}"`);
+      }
+    });
+    for (let a = 0; a < labels.length; a += 1) {
+      for (let c = a + 1; c < labels.length; c += 1) {
+        const A = labels[a].b, B = labels[c].b;
+        if (A.x < B.x + B.width - 1 && B.x < A.x + A.width - 1 && A.y < B.y + B.height - 1 && B.y < A.y + A.height - 1) {
+          issues.push(`figure ${i + 1}: "${labels[a].text}" overlaps "${labels[c].text}"`);
+        }
+      }
+    }
+  });
+  return issues;
+})();
+```
+
+`getBBox()` ignores `transform`. If a figure positions groups with `transform`, compare `getBoundingClientRect()` instead.
+
 ## Calendar
 
 - Leading blank cells match the first weekday of the month, and dates run from 1 to the last day.
