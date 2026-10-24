@@ -280,3 +280,9 @@ test('cards and boxes in the shipped UI have no accent edges', () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+test('does not throw when the page frame is on another origin', () => {
+  // Pages are served from the content domain, so reading the frame's scroll position is blocked.
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  assert.match(dashboard, /function watchFrameScroll\(\) \{[\s\S]{0,400}try \{\s*lastY = frameWindow\.scrollY;\s*\} catch \{/);
+});

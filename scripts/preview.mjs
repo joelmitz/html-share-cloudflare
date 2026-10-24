@@ -18,14 +18,6 @@ createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     response.end(JSON.stringify({
       items: sampleReview ? [{
-        id: 'preview-request-1',
-        source: 'owner',
-        title: '勉強会の資料を更新',
-        question: '社内勉強会の資料に、今日のハンズオンで出た質問をまとめておいて',
-        target: '社内勉強会',
-        status: 'waiting',
-        updatedAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
-      }, {
         id: 'preview-review-1',
         title: '新機能リリース｜公開の判断',
         question: '公開前チェックがすべて通りました。本番へ公開してよいですか？',
