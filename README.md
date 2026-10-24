@@ -31,6 +31,14 @@ HTML共有くんは、AIコーディングエージェントに作らせたHTML�
 
 Claude Code、Codex、Cursorなど、手元のどのエージェントからでも同じように使えます。
 
+## AWSの構成
+
+<p align="center">
+  <img src="docs/images/architecture.png" alt="HTML共有くんのAWS構成図" width="80%">
+</p>
+
+エージェントが作ったHTMLを配る閲覧面と、一覧やインボックスを出す管理面を、別々のCloudFrontとドメインに分けています。手元のCLIはページと画面をS3へ直接送り、ブラウザは署名付きURLやCookieで開きます。詳しくは[アーキテクチャ](docs/architecture.md)を参照してください。
+
 ## ドキュメント
 
 - [初回セットアップ](docs/setup.md)
