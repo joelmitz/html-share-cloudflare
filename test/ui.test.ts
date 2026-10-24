@@ -275,3 +275,22 @@ test('serves only the link preview image without a signature', () => {
   assert.match(contentWorker, /isPublicOg = key === 'og\/card\.jpg'/);
   assert.match(contentWorker, /if \(!isPublicOg\) \{[\s\S]*?This URL is missing its signature/);
 });
+
+test('cards and boxes in the shipped UI have no accent edges', () => {
+  // One thick colored side on a card (a top or left stripe) reads as a stock AI-generated layout.
+  // State is shown with a small dot or a word instead.
+  const files = ['web/app/index.html', 'web/review/index.html', 'web/page-list.js', 'web/mobile-page-shell.js'];
+  const offenders: string[] = [];
+  for (const file of files) {
+    readFileSync(path.join(root, file), 'utf8').split('\n').forEach((line, i) => {
+      if (/border-(top|left|right|bottom|inline-start|inline-end)\s*:\s*([2-9]|\d{2,})px\s+solid/.test(line)) offenders.push(`${file}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('does not throw when the page frame is on another origin', () => {
+  // Pages are served from the content domain, so reading the frame's scroll position is blocked.
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  assert.match(dashboard, /function watchFrameScroll\(\) \{[\s\S]{0,400}try \{\s*lastY = frameWindow\.scrollY;\s*\} catch \{/);
+});

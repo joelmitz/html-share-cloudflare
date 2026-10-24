@@ -107,20 +107,20 @@ button { -webkit-tap-highlight-color: transparent; }
   font-variant-numeric: tabular-nums;
 }
 .topbar-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: .4rem; }
-/* 丸いガラス調のボタン。トップの .tb-btn と同じ寸法・質感 */
+/* 右上は一覧と同じく枠も面も付けず記号だけ。押したときだけ淡く光らせる */
 .tb-btn {
-  width: 2.2rem; height: 2.2rem; padding: 0;
+  width: 2.4rem; height: 2.4rem; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(255, 255, 255, .3); border-radius: 999px;
-  background: rgba(255, 255, 255, .14); color: var(--white);
+  border: 0; border-radius: 999px;
+  background: transparent; color: var(--white);
   font: inherit; cursor: pointer;
-  transition: background .18s ease, border-color .18s ease;
+  transition: background .18s ease;
 }
-.tb-btn:hover { background: rgba(255, 255, 255, .26); border-color: rgba(255, 255, 255, .52); }
+.tb-btn:hover { background: rgba(255, 255, 255, .16); }
 .tb-btn:active { transform: scale(.97); }
 .tb-btn:disabled { opacity: .55; cursor: default; }
 .tb-btn svg {
-  width: 1.05rem; height: 1.05rem; flex: none;
+  width: 1.15rem; height: 1.15rem; flex: none;
   fill: none; stroke: currentColor; stroke-width: 1.8;
   stroke-linecap: round; stroke-linejoin: round;
 }
@@ -132,20 +132,18 @@ main {
            max(var(--gutter), env(safe-area-inset-left));
   background: var(--soft);
 }
+/* 見出しは一覧の日付の区切り（今日 ──── 件数）と同じ作り。色の付いた札にしない */
 .section-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin: .25rem 0 .65rem; color: var(--sub); font-size: .82rem; font-weight: 700;
+  display: flex; align-items: center; gap: .75rem;
+  margin: .35rem 0 .8rem; color: var(--blue); font-size: .78rem; font-weight: 700; letter-spacing: .04em;
 }
-.section-head.later { margin-top: 1.9rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
-.count {
-  min-width: 1.6rem; padding: .1rem .45rem; border-radius: 999px;
-  text-align: center; color: var(--blue-deep); background: var(--blue-soft);
-}
-.count.gold { color: var(--gold-deep); background: var(--gold-soft); }
+.section-head::after { content: ""; order: 2; flex: 1; height: 1px; background: var(--blue-line); }
+.section-head.later { margin-top: 2.2rem; }
+.count { order: 3; color: var(--mut); font-size: .74rem; font-weight: 600; letter-spacing: 0; }
 .compose {
-  margin: 0 0 .9rem; padding: .8rem;
-  border: 1px solid var(--line); border-radius: .85rem;
-  background: var(--white); box-shadow: 0 1px 6px rgba(26,26,31,.04);
+  margin: 0 0 .9rem; padding: .9rem;
+  border: 1px solid rgba(14, 13, 106, .06); border-radius: 1rem;
+  background: var(--white); box-shadow: 0 1px 2px rgba(26, 26, 31, .03), 0 10px 26px rgba(14, 13, 106, .055);
 }
 .compose textarea {
   display: block; width: 100%; min-height: 3.6rem; resize: vertical;
@@ -219,26 +217,31 @@ main {
    そのまま追従して最大3段まで自動で増える。Grid だと行の高さが一番背の高いカードに
    引っ張られて隙間だらけになるため、こちらを選んでいる */
 .cards { columns: 23rem 3; column-gap: 1.25rem; }
+/* 一覧のテーマのカードと同じ白い面・角丸・影。状態を辺の色の帯で示さない
+   （上辺や左端だけに色を付けるカードは、AIが作った画面に見える定番の型） */
 .card {
-  margin-bottom: .75rem; padding: 1rem;
-  border: 1px solid var(--line); border-radius: .85rem;
-  background: var(--white); box-shadow: 0 1px 6px rgba(26,26,31,.04);
+  margin-bottom: .9rem; padding: 1.05rem 1.1rem;
+  border: 1px solid rgba(14, 13, 106, .06); border-radius: 1rem;
+  background: var(--white); box-shadow: 0 1px 2px rgba(26, 26, 31, .03), 0 10px 26px rgba(14, 13, 106, .055);
   /* カードが段をまたいで割れると、質問文と承認ボタンが別の段に分かれてしまう */
   break-inside: avoid; -webkit-column-break-inside: avoid;
 }
-.card.waiting { border-top: 3px solid var(--gold); }
-.card.answered { border-top: 3px solid var(--blue-bright); }
-.card.request.waiting { border-top-color: var(--blue); }
-.meta { display: flex; align-items: center; justify-content: space-between; gap: .7rem; margin-bottom: .55rem; }
+.meta { display: flex; align-items: center; gap: .55rem; margin-bottom: .55rem; }
+.meta .time { margin-left: auto; }
+/* 返事を待っている確認は、一覧の未読と同じ小さな丸で示す */
+.card.waiting:not(.request) .meta::before {
+  content: ""; flex: none; width: .42rem; height: .42rem; border-radius: 50%;
+  background: var(--blue-bright); box-shadow: 0 0 0 3px rgba(10, 160, 220, .15);
+}
 .title { color: var(--sub); font-size: .78rem; font-weight: 700; overflow-wrap: anywhere; }
 .time { flex: none; color: var(--mut); font-size: .7rem; }
 .question { margin: 0; font-size: 1rem; line-height: 1.65; white-space: pre-wrap; }
 .context { margin: .6rem 0 0; color: var(--sub); font-size: .82rem; line-height: 1.55; white-space: pre-wrap; }
 .recommendation {
-  margin: .75rem 0 0; padding: .6rem .7rem;
-  border-left: 3px solid var(--blue); border-radius: .35rem;
-  color: var(--blue-deep); background: var(--blue-soft); font-size: .82rem; line-height: 1.5;
+  margin: .75rem 0 0; padding: .65rem .8rem; border-radius: .7rem;
+  color: var(--sub); background: var(--soft); font-size: .82rem; line-height: 1.55;
 }
+.recommendation strong { color: var(--ink); }
 /* 承認を1行占有させ、その下にコメント欄と送るを置く。3段組みだと段幅が23remしかなく、
    承認・入力・送るを横一列にすると入力欄が指1本ぶんしか残らない。段数が変わっても
    同じ形にしておけば、スマホとPCで操作の形が食い違わない */
@@ -258,8 +261,8 @@ main {
 .actions input:focus { outline: 2px solid var(--blue-bright); border-color: transparent; }
 .actions button:disabled { opacity: .55; cursor: default; }
 .reply {
-  margin: .7rem 0 0; padding: .65rem .75rem; border-radius: .55rem;
-  color: var(--success); background: var(--success-soft); font-size: .84rem; white-space: pre-wrap;
+  margin: .7rem 0 0; padding: .65rem .8rem; border-radius: .7rem;
+  color: var(--ink); background: var(--soft); font-size: .84rem; white-space: pre-wrap;
 }
 .waiting-mac { margin-top: .7rem; color: var(--blue); font-size: .72rem; font-weight: 700; }
 .discard {
@@ -370,7 +373,7 @@ footer {
 <main>
   <div id="toast" role="status"></div>
 
-  <div class="section-head"><span>Claudeへの依頼</span><span class="count gold" id="request-count">0</span></div>
+  <div class="section-head"><span>Claudeへの依頼</span><span class="count" id="request-count">0件</span></div>
   <form class="compose" id="compose">
     <textarea id="compose-text" placeholder="やっておいてほしいことを書く" aria-label="Claudeへの依頼"></textarea>
     <div class="compose-target-wrap">
@@ -389,7 +392,7 @@ footer {
   </form>
   <div class="cards" id="request-cards"></div>
 
-  <div class="section-head later"><span>Claudeからの確認</span><span class="count" id="active-count">0</span></div>
+  <div class="section-head later"><span>Claudeからの確認</span><span class="count" id="active-count">0件</span></div>
   <div class="cards" id="active-cards"></div>
 
   <section class="history" id="history-section" hidden>
@@ -600,8 +603,8 @@ footer {
     requestCards.replaceChildren(...requests.map(taskCard));
     activeCards.replaceChildren(...active.map(taskCard));
     historyCards.replaceChildren(...completed.map(taskCard));
-    $('request-count').textContent = String(requests.length);
-    $('active-count').textContent = String(active.length);
+    $('request-count').textContent = `${requests.length}件`;
+    $('active-count').textContent = `${active.length}件`;
     $('history-section').hidden = completed.length === 0;
     $('summary').textContent = requests.length > 0
       ? `依頼 ${requests.length}件がPC待ち`

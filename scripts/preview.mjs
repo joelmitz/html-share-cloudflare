@@ -19,12 +19,19 @@ createServer((request, response) => {
     response.end(JSON.stringify({
       items: sampleReview ? [{
         id: 'preview-review-1',
-        title: 'HTML共有くん OSS公開準備',
-        question: 'GitHubへの公開とREADME画像の追加を進めてよいですか？',
-        context: '実UIへの統一と、公開不可情報のダミー化が完了しています。',
-        recommendation: '公開前テストと秘密情報スキャンを通過済みです。',
+        title: '新機能リリース｜公開の判断',
+        question: '公開前チェックがすべて通りました。本番へ公開してよいですか？',
+        context: '変更点のまとめと、確認した画面の一覧はページに載せています。',
+        recommendation: '金曜の夕方を避け、明日の午前に公開する',
         status: 'waiting',
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      }, {
+        id: 'preview-review-2',
+        title: 'ベランダ菜園｜苗の注文',
+        question: '秋植えの苗を3種類注文してよいですか？',
+        responseText: 'OK。ミニ白菜は2株にして。',
+        status: 'answered',
+        updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       }] : [],
     }));
     return;

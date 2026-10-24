@@ -106,6 +106,16 @@ export function checkHtml(source, { baseDir } = {}) {
     }
   }
 
+  // An accent edge: one side of a card or box drawn as a thick colored rule (a top or left stripe).
+  // It reads as a stock AI-generated layout. Headings (the default h3 rule) are exempt.
+  for (const r of rules) {
+    const d = r.decl;
+    if (/border-(top|left|right|bottom)(-width)?\s*:\s*([3-9]|\d\d)px/.test(d)
+      && /border-radius|padding|background/.test(d) && !/(^|[\s,>+~])h[1-6]\b/.test(r.sel)) {
+      ng.push(`accent edge on \`${r.sel}\`; build cards from a white surface, radius and shadow, and mark state with a small dot or label`);
+    }
+  }
+
   // Unbalanced <div>: an extra close ends .wrap early and every later section runs full width.
   const divDelta = (body.match(/<div\b/gi) ?? []).length - (body.match(/<\/div>/gi) ?? []).length;
   if (divDelta) ng.push(`<div> open/close delta ${divDelta > 0 ? '+' : ''}${divDelta}`);

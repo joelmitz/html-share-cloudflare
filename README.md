@@ -6,9 +6,12 @@
 HTML共有くんは、AIコーディングエージェントに作らせたHTMLを1か所へためて、スマホからも読めるようにするツールです。自分のCloudflareアカウントで動かすセルフホスト型で、作者へページや回答が送られることはありません。
 
 <p align="center">
-  <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="66%">
+  <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="100%">
+</p>
+<p align="center">
+  <img src="docs/images/page-pc.png" alt="登録したページをPCで開いたところ" width="62%">
   &nbsp;
-  <img src="docs/images/mobile-approval-actions-native.png" alt="AIから届いた承認依頼をスマホで確認" width="31%">
+  <img src="docs/images/mobile-inbox.png" alt="スマホからClaudeへ依頼を置き、Claudeからの確認に答えるインボックス" width="32%">
 </p>
 
 ## 主な機能
@@ -30,6 +33,14 @@ HTML共有くんは、AIコーディングエージェントに作らせたHTML�
 > `/inbox` で、スマホから置いた依頼を引き取って
 
 Claude Code、Codex、Cursorなど、手元のどのエージェントからでも同じように使えます。
+
+## AWSの構成
+
+<p align="center">
+  <img src="docs/images/architecture.png" alt="HTML共有くんのAWS構成図" width="80%">
+</p>
+
+エージェントが作ったHTMLを配る閲覧面と、一覧やインボックスを出す管理面を、別々のCloudFrontとドメインに分けています。手元のCLIはページと画面をS3へ直接送り、ブラウザは署名付きURLやCookieで開きます。詳しくは[アーキテクチャ](docs/architecture.md)を参照してください。
 
 ## ドキュメント
 

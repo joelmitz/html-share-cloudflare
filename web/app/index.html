@@ -1558,7 +1558,15 @@ body.page-controls-hidden #page-actions {
   function watchFrameScroll() {
     const frameWindow = frame.contentWindow;
     if (!frameWindow) return;
-    let lastY = frameWindow.scrollY;
+    // ページは別のドメイン（contentDomain）から配信するので、枠の中のスクロールは読めないのが普通。
+    // 読めないときはボタンを出したままにする（例外を投げると、ページを開くたびにエラーが残る）
+    let lastY;
+    try {
+      lastY = frameWindow.scrollY;
+    } catch {
+      setPageControlsHidden(false);
+      return;
+    }
     frameWindow.addEventListener('scroll', () => {
       const nextY = frameWindow.scrollY;
       if (nextY <= 24 || nextY < lastY - 6) setPageControlsHidden(false);
