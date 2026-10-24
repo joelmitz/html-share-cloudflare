@@ -3,9 +3,12 @@
 HTML共有くんは、AIコーディングエージェントに作らせたHTMLを1か所へためて、スマホからも読めるようにするツールです。自分のAWSアカウントで動かすセルフホスト型で、作者へページや回答が送られることはありません。
 
 <p align="center">
-  <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="71%">
-  &nbsp;
-  <img src="docs/images/mobile-approval-actions-native.png" alt="AIから届いた承認依頼をスマホで確認" width="26%">
+  <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="100%">
+</p>
+<p align="center">
+  <img src="docs/images/mobile-inbox.png" alt="スマホからClaudeへ依頼を置き、Claudeからの確認に答えるインボックス" width="34%">
+  &nbsp;&nbsp;
+  <img src="docs/images/mobile-page.png" alt="登録したページをスマホで開いたところ" width="39%">
 </p>
 
 ## 主な機能
