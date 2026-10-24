@@ -6,9 +6,9 @@ HTML共有くんは、AIコーディングエージェントに作らせたHTML�
   <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="100%">
 </p>
 <p align="center">
-  <img src="docs/images/page-pc.png" alt="登録したページをPCで開いたところ" width="70%">
+  <img src="docs/images/page-pc.png" alt="登録したページをPCで開いたところ" width="62%">
   &nbsp;
-  <img src="docs/images/mobile-inbox.png" alt="スマホからClaudeへ依頼を置き、Claudeからの確認に答えるインボックス" width="25%">
+  <img src="docs/images/mobile-inbox.png" alt="スマホからClaudeへ依頼を置き、Claudeからの確認に答えるインボックス" width="32%">
 </p>
 
 ## 主な機能
