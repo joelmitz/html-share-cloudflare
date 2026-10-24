@@ -32,6 +32,7 @@ const breakages: Array<[string, (html: string) => string, RegExp]> = [
   ['band nested in a card', (h) => h.replace('.card thead { background-image: none; background: var(--soft); }', ''), /nest/],
   ['bare pre code', (h) => h.replace('.wrap pre code {', 'pre code {'), /bare pre\/code/],
   ['decorated quote box', (h) => h.replace('.callout { margin: 22px 0;', '.callout { border-left: 5px solid var(--gold); margin: 22px 0;'), /decorated quote/],
+  ['accent edge on a card', (h) => h.replace('</style>', '.card.waiting { border-top: 3px solid var(--gold); border-radius: 12px; }</style>'), /accent edge/],
   ['extra closing div', (h) => h.replace('<footer>', '</div><footer>'), /<div> open\/close/],
   ['stray Hangul character', (h) => h.replace('<p class="sub">', '<p class="sub">설명'), /Hangul/],
   ['shape outside the viewBox', (h) => h.replace('<rect x="460" y="30" width="170"', '<rect x="560" y="30" width="170"'), /outside/],

@@ -51,6 +51,7 @@ Everything else stays neutral: quotes, tags, card bodies, column labels. A light
 
 - Sections are separated by a top hairline and padding, with at least 36 px of bottom padding. A thin bottom padding lets the next divider touch the preceding figure or card.
 - Give adjacent blocks (a card grid followed by a table, a figure followed by a note) 16 to 24 px between them. Grid `gap` works only inside the grid, not between the grid and the next element.
+- No accent edges. Do not draw one side of a card or box (a top or left stripe of 3px or more) in a color to mark its type or state. Build cards from a white surface, rounded corners and a soft shadow, and mark state with a small dot, a word or a pill label. Headings may keep their left rule.
 - One enclosure per level. Do not nest a tinted, left-ruled, rounded quote box inside a card; separate supporting text with either a light surface or a thin rule.
 
 ## Images
