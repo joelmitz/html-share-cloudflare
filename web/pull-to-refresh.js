@@ -77,14 +77,29 @@
     mount();
   }
 
+  // 触った場所を内側から包むスクロール枠。アプリ型のページは本文を overflow-y:auto の枠で
+  // スクロールさせるので、ページ全体が先頭でも枠の中は途中まで読み進めていることがある
+  let innerScrollers = [];
+  const findScrollers = (target) => {
+    const found = [];
+    for (let el = target instanceof Element ? target : null; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      if (el.scrollHeight <= el.clientHeight + 1) continue;
+      const overflowY = getComputedStyle(el).overflowY;
+      if (overflowY === 'auto' || overflowY === 'scroll') found.push(el);
+    }
+    return found;
+  };
+
   const scrollTop = () => Math.max(
     document.scrollingElement?.scrollTop ?? 0,
     window.scrollY ?? 0,
+    ...innerScrollers.map((el) => el.scrollTop),
   );
 
   const reset = () => {
     tracking = false;
     distance = 0;
+    innerScrollers = [];
     host.removeAttribute('data-active');
     host.removeAttribute('data-ready');
     host.removeAttribute('data-refreshing');
@@ -103,6 +118,7 @@
   };
 
   document.addEventListener('touchstart', (event) => {
+    innerScrollers = findScrollers(event.target);
     if (refreshing || event.touches.length !== 1 || scrollTop() > 0) return;
     if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     const touch = event.touches[0];
