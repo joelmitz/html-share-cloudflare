@@ -8,10 +8,11 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { BuildManifest, BuiltPage } from './bundle.js';
-import { buildSite } from './bundle.js';
+import type { ArchivedPage, BuildManifest, BuiltPage } from './bundle.js';
+import { addDays, buildSite, jstToday } from './bundle.js';
 import type { HtmlShareConfig } from './config.js';
-import { contentUrl, consoleUrl, resolveFromConfig } from './config.js';
+import { consoleUrl, contentUrl, resolveFromConfig, setPageKeep } from './config.js';
+import { REVIVE_DAYS } from './retention.js';
 import { signUrl } from './sign.js';
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -36,7 +37,7 @@ function files(root: string, current = root): string[] {
   });
 }
 
-function copyConsole(buildRoot: string, manifest: object): void {
+function copyConsole(buildRoot: string, manifest: object, config: HtmlShareConfig): void {
   const consoleRoot = path.join(buildRoot, 'console');
   mkdirSync(consoleRoot, { recursive: true });
   for (const relative of files(path.join(PACKAGE_ROOT, 'web'))) {
@@ -44,6 +45,15 @@ function copyConsole(buildRoot: string, manifest: object): void {
     const target = path.join(consoleRoot, relative);
     mkdirSync(path.dirname(target), { recursive: true });
     writeFileSync(target, readFileSync(source));
+  }
+  // iconsDir の中身は、同じ名前の同梱アイコンを上書きする（favicon.ico は直下、それ以外は icons/ へ）
+  if (config.content.iconsDir) {
+    const iconsDir = resolveFromConfig(config, config.content.iconsDir);
+    for (const name of readdirSync(iconsDir)) {
+      if (!/\.(png|ico)$/i.test(name)) continue;
+      const target = name === 'favicon.ico' ? path.join(consoleRoot, name) : path.join(consoleRoot, 'icons', name);
+      writeFileSync(target, readFileSync(path.join(iconsDir, name)));
+    }
   }
   mkdirSync(path.join(consoleRoot, 'app'), { recursive: true });
   writeFileSync(path.join(consoleRoot, 'app', 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -106,10 +116,30 @@ async function deleteKeys(client: S3Client, bucket: string, keys: string[]): Pro
  *   中身のハッシュで比べて差分だけを送り、消えたものだけを消す。
  *   バケットは SSE-S3 なので、単一パートで上げた分の ETag は中身の MD5 と一致する。
  */
-export async function syncTree(client: S3Client, bucket: string, root: string): Promise<void> {
+/**
+ * 送る前に、バケットの中身が大きく減らないことを確かめる。
+ *
+ *   syncTree は「ローカルに無いキーは消す」。設定ファイルが空や途中までのまま build すると、
+ *   生成物が数件しか無い状態を正として、バケットのページを丸ごと消してしまう。
+ *   いまのバケットから2割以上減る送信は、HTML_SHARE_ALLOW_SHRINK=1 を付けたときだけ通す。
+ */
+export function assertNotShrinking(remoteCount: number, localCount: number, allow = process.env.HTML_SHARE_ALLOW_SHRINK === '1'): void {
+  if (allow || remoteCount <= 50) return;
+  if (localCount < remoteCount * 0.8) {
+    throw new Error(`Refusing to publish: the build has ${localCount} files but the bucket has ${remoteCount}. Check your page list, or set HTML_SHARE_ALLOW_SHRINK=1 if the removal is intended.`);
+  }
+}
+
+/**
+ * expectedRemovals は、この build で意図して外したファイルの数（保管庫へ移したページ）。
+ * 保持期限で一度に多くのページが外れても、設定の崩れと取り違えて止めないために数へ足す
+ */
+export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovals = 0): Promise<void> {
   const remote = await remoteObjects(client, bucket);
+  const local = files(root);
+  assertNotShrinking(remote.size, local.length + expectedRemovals);
   const kept = new Set<string>();
-  for (const relative of files(root)) {
+  for (const relative of local) {
     const file = path.join(root, relative);
     const key = relative.split(path.sep).join('/');
     kept.add(key);
@@ -207,6 +237,9 @@ function ownerManifest(manifest: BuildManifest, config: HtmlShareConfig): object
       }),
     })),
     shelf: manifest.shelf,
+    retainDays: manifest.retainDays,
+    // 保管庫のページは配信先に無いので、署名付きURLを作らない
+    archived: manifest.archived,
   };
 }
 
@@ -214,7 +247,7 @@ function ownerManifest(manifest: BuildManifest, config: HtmlShareConfig): object
 function buildUnlocked(config: HtmlShareConfig): { buildRoot: string; manifest: BuildManifest } {
   const buildRoot = path.resolve(config.baseDir, '.html-share', 'build');
   const manifest = buildSite(config, buildRoot);
-  copyConsole(buildRoot, { ...manifest, pages: manifest.pages.map((page) => ({ ...page, href: null })) });
+  copyConsole(buildRoot, { ...manifest, pages: manifest.pages.map((page) => ({ ...page, href: null })) }, config);
   return { buildRoot, manifest };
 }
 
@@ -227,17 +260,21 @@ export function buildOnly(config: HtmlShareConfig): { buildRoot: string; manifes
   }
 }
 
-export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: string; pages: number }> {
+export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: string; pages: number; archived: number }> {
   // build と送信の両方を1つのロックで囲む。送信も .html-share/build を読む区間なので、
   // ここを外すと「送信中に別の build が生成物を作り直す」状態が起きる。
   const release = acquirePublishLock(config);
   try {
     const { buildRoot, manifest } = buildUnlocked(config);
-    copyConsole(buildRoot, ownerManifest(manifest, config));
+    copyConsole(buildRoot, ownerManifest(manifest, config), config);
     const client = r2Client(config);
-    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'));
+    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.length);
     await syncTree(client, config.cloudflare.consoleBucket, path.join(buildRoot, 'console'));
-    return { consoleUrl: `${consoleUrl(config)}/app/index.html`, pages: manifest.pages.length };
+    return {
+      consoleUrl: `${consoleUrl(config)}/app/index.html`,
+      pages: manifest.pages.length,
+      archived: manifest.archived.length,
+    };
   } finally {
     release();
   }
@@ -253,6 +290,9 @@ export function share(config: HtmlShareConfig, query: string, days: number): str
   // 「複数一致」エラーになっていた（例: report-2026-08-04-141049 と
   // report-2026-08-04-141049-ja）。完全一致が無いときだけ部分一致にフォールバックする。
   const matches = matchingPages(manifest.pages, query);
+  if (matches.length === 0 && matchingPages(manifest.archived ?? [], query).length > 0) {
+    throw new Error(`${query} is in the archive and is not served. Run \`html-share page revive ${query}\` first.`);
+  }
   if (matches.length !== 1) throw new Error(matches.length ? `Multiple pages match ${query}: ${matches.map((p) => p.slug).join(', ')}` : `Page not found: ${query}`);
   return signUrl({
     url: `${contentUrl(config)}/${matches[0].objectKey}`,
@@ -261,8 +301,33 @@ export function share(config: HtmlShareConfig, query: string, days: number): str
   });
 }
 
-export function matchingPages(pages: BuiltPage[], query: string): BuiltPage[] {
+export function matchingPages<T extends Pick<BuiltPage, 'slug' | 'title'>>(pages: T[], query: string): T[] {
   const exact = pages.filter((page) => page.slug === query);
   if (exact.length > 0) return exact;
   return pages.filter((page) => page.slug.includes(query) || page.title.includes(query));
+}
+
+/**
+ * 保管庫のページを配信へ戻す。設定ファイルのそのページに keep（今日から days 日後）を書く。
+ * 見直し日を過ぎてもまだ要るなら、もう一度 revive するか keep を延ばす。
+ * 保管庫の一覧は直前の build の manifest から引く（build していなければ先に build する）
+ */
+export function revive(config: HtmlShareConfig, query: string, days = REVIVE_DAYS, now = new Date()): { page: ArchivedPage; keep: string } {
+  if (!Number.isInteger(days) || days < 1) throw new Error('--days must be a positive integer');
+  const manifestFile = path.resolve(config.baseDir, '.html-share', 'build', 'manifest.json');
+  let manifest: BuildManifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as BuildManifest;
+  } catch {
+    throw new Error(`No build found at ${manifestFile}. Run \`html-share build\` first.`);
+  }
+  const matches = matchingPages(manifest.archived ?? [], query);
+  if (matches.length !== 1) {
+    throw new Error(matches.length
+      ? `Multiple archived pages match ${query}: ${matches.map((page) => page.slug).join(', ')}`
+      : `No archived page matches ${query}`);
+  }
+  const keep = addDays(jstToday(now), days);
+  setPageKeep(config.configFile, matches[0].source, keep);
+  return { page: matches[0], keep };
 }

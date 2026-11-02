@@ -8,7 +8,7 @@ import { ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/
 import { buildSite, type BuiltPage } from '../src/bundle.js';
 import type { HtmlShareConfig } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
-import { TYPES, acquirePublishLock, buildOnly, matchingPages, share, syncTree } from '../src/publish.js';
+import { TYPES, acquirePublishLock, assertNotShrinking, buildOnly, matchingPages, share, syncTree } from '../src/publish.js';
 
 function fixture(pages: Array<{ slug: string; title: string; objectKey: string }>): { config: ReturnType<typeof loadConfig> } {
   const root = mkdtempSync(path.join(tmpdir(), 'html-share-publish-'));
@@ -210,4 +210,11 @@ test('sets image/jpeg content type for bundled og/card.jpg on sync', async () =>
   const ogCard = putCommands.find((cmd) => cmd.Key === 'og/card.jpg');
   assert.ok(ogCard, 'og/card.jpg must be uploaded');
   assert.equal(ogCard.ContentType, 'image/jpeg');
+});
+
+test('refuses a publish that would delete most of the bucket', () => {
+  assert.throws(() => assertNotShrinking(1000, 3, false), /Refusing to publish/);
+  assert.doesNotThrow(() => assertNotShrinking(1000, 950, false));
+  assert.doesNotThrow(() => assertNotShrinking(1000, 3, true));
+  assert.doesNotThrow(() => assertNotShrinking(20, 0, false));
 });
