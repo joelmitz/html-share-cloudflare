@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { buildSite, type BuiltPage } from '../src/bundle.js';
 import type { HtmlShareConfig } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
@@ -217,4 +217,54 @@ test('refuses a publish that would delete most of the bucket', () => {
   assert.doesNotThrow(() => assertNotShrinking(1000, 950, false));
   assert.doesNotThrow(() => assertNotShrinking(1000, 3, true));
   assert.doesNotThrow(() => assertNotShrinking(20, 0, false));
+});
+
+// syncTree までの経路で、縮小ガードの「意図した削除」が実在するキーだけを数えることを確かめる
+function shrinkFixture(remoteKeys: string[], localKeys: string[]): { client: S3Client; root: string; calls: { puts: string[]; deletes: string[] } } {
+  const root = mkdtempSync(path.join(tmpdir(), 'html-share-shrink-'));
+  for (const key of localKeys) {
+    mkdirSync(path.dirname(path.join(root, key)), { recursive: true });
+    writeFileSync(path.join(root, key), `<p>${key}</p>`);
+  }
+  const calls = { puts: [] as string[], deletes: [] as string[] };
+  const client = {
+    send: async (cmd: unknown) => {
+      if (cmd instanceof ListObjectsV2Command) return { Contents: remoteKeys.map((Key) => ({ Key, ETag: '"stale"' })) };
+      if (cmd instanceof PutObjectCommand) calls.puts.push(String(cmd.input.Key));
+      if (cmd instanceof DeleteObjectsCommand) calls.deletes.push(...(cmd.input.Delete?.Objects ?? []).map((object) => String(object.Key)));
+      return {};
+    },
+  } as unknown as S3Client;
+  return { client, root, calls };
+}
+
+const liveKeys = Array.from({ length: 100 }, (_, index) => `pages/live-${index}/index.html`);
+const archiveKeys = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => `pages/${prefix}-${index}/index.html`);
+
+test('a past archive that is no longer in the bucket gives no room to a mass deletion of live pages', async () => {
+  const { client, root, calls } = shrinkFixture(liveKeys, ['index.html']);
+  await assert.rejects(syncTree(client, 'b', root, archiveKeys(100, 'old-archive')), /Refusing to publish/);
+  assert.deepEqual([calls.puts, calls.deletes], [[], []]);
+});
+
+test('archiving pages that are in the bucket now is an intended removal and goes through', async () => {
+  const archived = archiveKeys(40, 'new-archive');
+  const { client, root, calls } = shrinkFixture([...liveKeys, ...archived], liveKeys.slice(0, 100));
+  await syncTree(client, 'b', root, archived);
+  assert.equal(calls.deletes.length, 40);
+});
+
+test('a plain shrink is refused without archives, and passes with the explicit override', async () => {
+  const refused = shrinkFixture(liveKeys, ['index.html']);
+  await assert.rejects(syncTree(refused.client, 'b', refused.root), /Refusing to publish/);
+  assert.deepEqual([refused.calls.puts, refused.calls.deletes], [[], []]);
+  const previous = process.env.HTML_SHARE_ALLOW_SHRINK;
+  process.env.HTML_SHARE_ALLOW_SHRINK = '1';
+  try {
+    const allowed = shrinkFixture(liveKeys, ['index.html']);
+    await syncTree(allowed.client, 'b', allowed.root);
+    assert.equal(allowed.calls.deletes.length, 100);
+  } finally {
+    if (previous === undefined) delete process.env.HTML_SHARE_ALLOW_SHRINK; else process.env.HTML_SHARE_ALLOW_SHRINK = previous;
+  }
 });

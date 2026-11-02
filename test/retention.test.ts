@@ -126,3 +126,13 @@ test('counts archived pages as intended removals in the shrink check', () => {
   assert.throws(() => assertNotShrinking(100, 60));
   assert.doesNotThrow(() => assertNotShrinking(100, 60 + 30));
 });
+
+test('revive finds a page whose path is written with quotes and surrounding spaces', () => {
+  const { configFile, root } = fixture('  retainDays: 30\n', `
+    - path: " pages/old.html "
+      title: 古いページ
+`);
+  buildSite(loadConfig(configFile), path.join(root, '.html-share', 'build'), NOW);
+  revive(loadConfig(configFile), 'old', 7, NOW);
+  assert.match(readFileSync(configFile, 'utf8'), /keep: 2026-04-07/);
+});

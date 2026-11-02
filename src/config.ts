@@ -336,12 +336,13 @@ export function setPageKeep(file: string | undefined, pagePath: string, keep: st
   if (!isSeq(pages)) throw new Error('content.pages must be an array');
   const index = pages.items.findIndex((item) => {
     const value = isMap(item) ? item.get('path') : (item as { value?: unknown })?.value;
-    return value === pagePath;
+    // loadConfig は path を trim して読むので、書き換え側も同じ正規化で照合する
+    return typeof value === 'string' && value.trim() === pagePath.trim();
   });
   if (index < 0) throw new Error(`content.pages has no entry for ${pagePath}`);
   if (!isMap(pages.items[index])) {
     // 文字列だけで書いたページは、path を持つ形へ書き直してから keep を足す
-    pages.items[index] = document.createNode({ path: pagePath });
+    pages.items[index] = document.createNode({ path: pagePath.trim() });
   }
   document.setIn(['content', 'pages', index, 'keep'], keep);
   writeFileSync(configFile, document.toString({ lineWidth: 120 }));

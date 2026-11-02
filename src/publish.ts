@@ -131,12 +131,19 @@ export function assertNotShrinking(remoteCount: number, localCount: number, allo
 }
 
 /**
- * expectedRemovals は、この build で意図して外したファイルの数（保管庫へ移したページ）。
- * 保持期限で一度に多くのページが外れても、設定の崩れと取り違えて止めないために数へ足す
+ * expectedRemovalKeys は、この build で意図して外したファイルのキー（保管庫へ移したページ）。
+ * 保持期限で一度に多くのページが外れても、設定の崩れと取り違えて止めないために数へ足す。
+ * 数えるのは「いまバケットに実在し、今回の削除対象になるキー」だけ。すでに配信先に無い過去の
+ * 保管庫ページまで余裕にすると、現役ページが誤って欠けたときの大量削除を通してしまう
  */
-export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovals = 0): Promise<void> {
+export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovalKeys: Iterable<string> = []): Promise<void> {
   const remote = await remoteObjects(client, bucket);
   const local = files(root);
+  const localKeys = new Set(local.map((relative) => relative.split(path.sep).join('/')));
+  let expectedRemovals = 0;
+  for (const key of new Set(expectedRemovalKeys)) {
+    if (remote.has(key) && !localKeys.has(key)) expectedRemovals += 1;
+  }
   assertNotShrinking(remote.size, local.length + expectedRemovals);
   const kept = new Set<string>();
   for (const relative of local) {
@@ -268,7 +275,7 @@ export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: st
     const { buildRoot, manifest } = buildUnlocked(config);
     copyConsole(buildRoot, ownerManifest(manifest, config), config);
     const client = r2Client(config);
-    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.length);
+    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.map((page) => `pages/${page.slug}/index.html`));
     await syncTree(client, config.cloudflare.consoleBucket, path.join(buildRoot, 'console'));
     return {
       consoleUrl: `${consoleUrl(config)}/app/index.html`,
