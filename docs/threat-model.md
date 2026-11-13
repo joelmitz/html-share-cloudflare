@@ -16,7 +16,7 @@ AIが生成したHTMLや外部から受け取ったHTMLには、意図しないJ
 
 ### 共有URLの流出
 
-共有URLを知る人は有効期限まで閲覧できます。無期限URLは発行せず、利用者が設定した上限を超える期間も拒否します。URLはログ、チャット、画面共有へ残り得るため、機密性の高い内容には共有URLを使わないでください。**代わりに`visibility: internal`（既定値）で publish し、`share-internal`（Cloudflare Access限定、閲覧のたびにAccessで許可した本人の認証アカウントを確認する）で見てください**（2026-08-21、share-internal新設。既定のログイン方法はOne-time PINで、GoogleはAccess設定で追加した場合のみ使う任意のIdPの一つ）。`--public`を明示したページだけがこの節の対象になります。
+共有URLを知る人は有効期限まで閲覧できます。無期限URLは発行せず、利用者が設定した上限を超える期間も拒否します。URLはログ、チャット、画面共有へ残り得るため、機密性の高い内容には共有URLを使わないでください。`content.retainDays` を設定すると、更新が止まったページは配信先から消え、そのページの共有URLも有効期限を待たずに開けなくなります（[保持期限と保管庫](retention.md)）。 **代わりに`visibility: internal`（既定値）で publish し、`share-internal`（Cloudflare Access限定、閲覧のたびにAccessで許可した本人の認証アカウントを確認する）で見てください**（2026-08-21、share-internal新設。既定のログイン方法はOne-time PINで、GoogleはAccess設定で追加した場合のみ使う任意のIdPの一つ）。`--public`を明示したページだけがこの節の対象になります。
 
 なお、オーナー本人用のプレビューリンク（`GET /api/owner/pages`が返す`href`。visibility='public'なページに限る）も、実体は同じ署名URL方式（`OWNER_LINK_DAYS`日間の有効期限、CIDR制限なし）です。console（Access限定）から発行されるからといって、生成後のURL自体がAccess保護下にあるわけではありません。
 

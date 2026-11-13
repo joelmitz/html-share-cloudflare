@@ -17,6 +17,9 @@ export interface ReviewCard {
   question: string;
   context?: string;
   recommendation?: string;
+  /** run＝承認すると Claude が recommendation を実行する、todo＝本人の作業で承認は「済んだ」の合図 */
+  kind?: '' | 'run' | 'todo';
+  approved?: boolean;
   status?: string;
   source?: string;
   target?: string | null;
@@ -76,7 +79,7 @@ async function request(config: HtmlShareConfig, pathname: string, options: {
     headers: {
       ...(serialized ? {
         'content-type': 'application/json',
-        'x-content-sha256': createHash('sha256').update(serialized).digest('hex'),
+        'x-amz-content-sha256': createHash('sha256').update(serialized).digest('hex'),
       } : {}),
       ...(authenticated ? { 'x-review-device-token': saved!.deviceToken } : {}),
     },

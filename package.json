@@ -1,6 +1,6 @@
 {
   "name": "@joelmitz/html-share-cloudflare",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-hosted HTML dashboard for Claude Code results (Cloudflare fork)",
   "type": "module",
   "private": true,
@@ -26,6 +26,7 @@
   "files": [
     "dist/",
     "web/",
+    "assets/og-card.jpg",
     "skills/",
     "workers/",
     ".codex-plugin/",
@@ -51,7 +52,7 @@
     "deploy": "npm run deploy:content && npm run deploy:internal && npm run deploy:console"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1109.0",
+    "@aws-sdk/client-s3": "3.1112.0",
     "yaml": "2.9.0"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { buildOnly, publish, share } from './publish.js';
+import { buildOnly, publish, revive, share } from './publish.js';
 import { initializeKeys, storePrivateKey } from './keys.js';
 import { addPageToConfig, loadConfig } from './config.js';
 import {
@@ -38,6 +38,7 @@ Usage:
   html-share publish [--config file]
   html-share share <slug> [--days 7]
   html-share page add <path> [--title title] [--public]
+  html-share page revive <slug> [--days 14] [--no-publish]
   html-share keys init [--overwrite]
   html-share keys store [--overwrite]
   html-share review pair <code> [--name name]
@@ -55,6 +56,17 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command || flag('--help') || flag('-h')) usage();
 
+  if (command === 'page' && process.argv[3] === 'revive') {
+    const query = process.argv[4];
+    if (!query) usage();
+    const config = loadConfig(option('--config'));
+    const days = option('--days') === undefined ? undefined : Number(option('--days'));
+    const { page, keep } = revive(config, query, days);
+    // keep を書いた設定を読み直してから publish する
+    const published = flag('--no-publish') ? undefined : await publish(loadConfig(option('--config')));
+    console.log(JSON.stringify({ ok: true, revived: page.slug, title: page.title, keep, ...(published ? { published } : { next: 'html-share publish' }) }, null, 2));
+    return;
+  }
   // page add は addPageToConfig() が生YAMLを直接読み書きするだけで、loadConfig()
   // が要求するcontent.pagesの非空制約を必要としない。新規セットアップ直後
   // （content.pagesがまだ空）で最初の1件を追加するための唯一の手段でもあるため、
@@ -75,7 +87,12 @@ async function main(): Promise<void> {
 
   if (command === 'build') {
     const result = buildOnly(config);
-    console.log(JSON.stringify({ ok: true, pages: result.manifest.pages.length, buildRoot: result.buildRoot }, null, 2));
+    console.log(JSON.stringify({
+      ok: true,
+      pages: result.manifest.pages.length,
+      archived: result.manifest.archived.length,
+      buildRoot: result.buildRoot,
+    }, null, 2));
     return;
   }
   if (command === 'publish') {
@@ -126,20 +143,17 @@ async function main(): Promise<void> {
     }
     if (action === 'inbox') {
       const requests = await listInbox(config);
-      // The hint travels with the data so an agent that skipped the skill still closes what it
-      // picked up. A request left open is indistinguishable from one no computer has taken yet.
-      // requests can include items this same device already claimed (status "in_progress") —
-      // e.g. after a restart mid-work. Those must not be claimed again; resume them directly.
+      // Keep requests pending until their independent destination is confirmed. Claim each waiting
+      // request first; requests already `in_progress` were claimed by this computer (e.g. before a
+      // restart) and must be resumed, not claimed again.
       const next = requests.length
-        ? 'Each request has a `status`. For "waiting" ones, claim before starting work, oldest'
-          + ' first: `html-share review claim <id>`. A 409 means another computer already'
-          + ' claimed it — skip that one and move on. For "in_progress" ones, this computer'
-          + ' already claimed them (likely before a restart) — do not claim again, resume the'
-          + ' work directly. Only work on requests that are "in_progress" or that you just'
-          + ' successfully claimed.'
-          + ' `target` is a nickname hint, not a filesystem path — verify it before using it.'
-          + ' When a request is finished, close it with `html-share review complete <id>`.'
-          + ' Report progress and results in chat.'
+        ? 'Oldest first. Each request has a `status`. Claim each "waiting" one before dispatching it: `html-share review claim <id>`.'
+          + ' A 409 means another computer already claimed it, so skip it. "in_progress" requests are already yours (likely claimed before a restart): do not claim again, resume them.'
+          + ' Verify each target repository and follow the inbox skill to launch one session per independent request.'
+          + ' Continue here only when both repository and topic match. Serialize overlapping work.'
+          + ' Record and verify the destination before `html-share review complete <id>`.'
+          + ' Keep failed, ambiguous, or waiting requests open. Reuse existing dispatch receipts instead of relaunching.'
+          + ' `target` is a nickname hint, not a filesystem path.'
         : undefined;
       console.log(JSON.stringify({ ok: true, requests, ...(next ? { next } : {}) }, null, 2));
       return;

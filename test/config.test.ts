@@ -28,6 +28,7 @@ content:
       repository: examples
       stream: release-notes
       streamLabel: リリースノート
+      streamChip: リリース
   ownerLinkDays: 7
   maximumShareDays: 30
   maximumAssetBytes: 1024
@@ -43,6 +44,7 @@ test('loads a valid config and resolves its base directory', () => {
   assert.equal(loaded.content.pages[0].repository, 'examples');
   assert.equal(loaded.content.pages[0].stream, 'release-notes');
   assert.equal(loaded.content.pages[0].streamLabel, 'リリースノート');
+  assert.equal(loaded.content.pages[0].streamChip, 'リリース');
   assert.deepEqual(loaded.content.allowedInternalCidrs, ['203.0.113.0/24']);
   assert.equal(loaded.cloudflare.internalDomain, 'internal.example.com');
   assert.equal(loaded.cloudflare.internalBucket, 'html-share-internal');
@@ -99,4 +101,72 @@ test('rejects invalid internal CIDRs', () => {
   const source = readFileSync(config, 'utf8').replace('203.0.113.0/24', invalid);
   writeFileSync(config, source);
   assert.throws(() => loadConfig(config), /must be an IPv4 CIDR/);
+});
+
+test('defaults the link preview name and rejects unsafe image URLs', () => {
+  const { config } = fixture();
+
+  // 既定のアプリ名。設定を書かなくてもカードに名前が出る。
+  assert.equal(loadConfig(config).content.siteName, '#HTML共有くん');
+  assert.equal(loadConfig(config).content.ogImageUrl, undefined);
+
+  const base = readFileSync(config, 'utf8');
+
+  writeFileSync(config, `${base}\n  siteName: Team Share\n  ogImageUrl: https://example.com/og.png\n`);
+  assert.equal(loadConfig(config).content.siteName, 'Team Share');
+  assert.equal(loadConfig(config).content.ogImageUrl, 'https://example.com/og.png');
+
+  // 画像URLはクローラーが取りに行く先なので https だけを許す。
+  writeFileSync(config, `${base}\n  ogImageUrl: http://example.com/og.png\n`);
+  assert.throws(() => loadConfig(config), /must use https/);
+
+  writeFileSync(config, `${base}\n  ogImageUrl: "javascript:alert(1)"\n`);
+  assert.throws(() => loadConfig(config), /must use https/);
+
+  writeFileSync(config, `${base}\n  ogImageUrl: "/relative/og.png"\n`);
+  assert.throws(() => loadConfig(config), /must be an absolute https URL/);
+  // false（または none）で画像を出さない。省略時の undefined は「同梱の画像を使う」。
+  writeFileSync(config, `${base}\n  ogImageUrl: false\n`);
+  assert.equal(loadConfig(config).content.ogImageUrl, false);
+  writeFileSync(config, `${base}\n  ogImageUrl: none\n`);
+  assert.equal(loadConfig(config).content.ogImageUrl, false);
+});
+
+test('loads shelf items and rejects ambiguous ones', () => {
+  const { config } = fixture();
+  const base = readFileSync(config, 'utf8');
+  assert.deepEqual(loadConfig(config).content.shelf, []);
+
+  writeFileSync(config, `${base}  shelf:
+    - id: plan
+      title: Launch plan
+      stream: release-notes
+      due: 2026-01-31
+    - id: thread
+      title: Reply to the thread
+      url: https://example.com/thread
+      added: 2026-01-20
+      note: waiting for a reply
+`);
+  const shelf = loadConfig(config).content.shelf ?? [];
+  assert.equal(shelf[0].due, '2026-01-31');
+  assert.equal(shelf[0].stream, 'release-notes');
+  assert.equal(shelf[1].url, 'https://example.com/thread');
+  assert.equal(shelf[1].note, 'waiting for a reply');
+  assert.equal(shelf[1].done, false);
+
+  // テーマとリンクの両方を持てる。title を省くと未設定のまま（テーマのチップ名は publish 時に決まる）
+  writeFileSync(config, `${base}  shelf:\n    - id: both\n      stream: a\n      url: https://example.com/\n`);
+  const [both] = loadConfig(config).content.shelf ?? [];
+  assert.equal(both.stream, 'a');
+  assert.equal(both.url, 'https://example.com/');
+  assert.equal(both.title, undefined);
+  writeFileSync(config, `${base}  shelf:\n    - id: neither\n      title: Nothing to open\n`);
+  assert.throws(() => loadConfig(config), /needs stream or url/);
+  writeFileSync(config, `${base}  shelf:\n    - id: dup\n      url: https://example.com/\n    - id: dup\n      url: https://example.com/\n`);
+  assert.throws(() => loadConfig(config), /duplicated/);
+  writeFileSync(config, `${base}  shelf:\n    - id: bad\n      url: "javascript:alert(1)"\n`);
+  assert.throws(() => loadConfig(config), /must use http or https/);
+  writeFileSync(config, `${base}  shelf:\n    - id: bad\n      url: https://example.com/\n      due: next week\n`);
+  assert.throws(() => loadConfig(config), /must be a date/);
 });

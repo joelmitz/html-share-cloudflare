@@ -88,7 +88,9 @@ function securityHeaders(env: Env, contentType: string): Headers {
   headers.set('referrer-policy', 'no-referrer');
   headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
   headers.set('cache-control', 'no-store, max-age=0');
-  headers.set('x-robots-tag', 'noindex, nofollow, nosnippet, noimageindex, noarchive');
+  // nosnippet / noimageindex は付けない（upstream cbc3ccbe）。noindex が検索エンジンには
+  // 効いている一方、リンクプレビューのクローラーがこれを読むとカードを縮める側にしか働かない。
+  headers.set('x-robots-tag', 'noindex, nofollow, noarchive');
   headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   return headers;
 }
@@ -106,31 +108,6 @@ export default {
       return failure(env, 405, 'Method not allowed.');
     }
     const url = new URL(request.url);
-    const expiresText = url.searchParams.get('e') ?? '';
-    const cidrParam = url.searchParams.get('i') ?? '';
-    const signatureParam = url.searchParams.get('s') ?? '';
-    if (!/^\d{1,12}$/.test(expiresText) || !signatureParam) {
-      return failure(env, 403, 'This URL is missing its signature.');
-    }
-    if (Number(expiresText) <= Math.floor(Date.now() / 1000)) {
-      return failure(env, 403, 'This URL has expired.');
-    }
-    const signature = base64UrlToBytes(signatureParam);
-    if (!signature) return failure(env, 403, 'This URL has an invalid signature.');
-    const verified = await crypto.subtle.verify(
-      'RSASSA-PKCS1-v1_5',
-      await publicKey(env),
-      signature,
-      encoder.encode(`${url.pathname}\n${expiresText}\n${cidrParam}`),
-    );
-    if (!verified) return failure(env, 403, 'This URL has an invalid signature.');
-    if (cidrParam) {
-      const cidrs = decodeCidrs(cidrParam);
-      const clientIp = request.headers.get('cf-connecting-ip') ?? '';
-      if (!cidrs || !ipInCidrs(clientIp, cidrs)) {
-        return failure(env, 403, 'This URL is limited to the allowed network.');
-      }
-    }
     let key: string;
     try {
       key = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
@@ -138,6 +115,38 @@ export default {
       return failure(env, 404, 'Not found.');
     }
     if (!key || key.includes('..')) return failure(env, 404, 'Not found.');
+
+    // リンクプレビューの画像（og/card.jpg）だけは署名なしで開ける。Slack・Teams・X のクローラーは
+    // 署名を持たずに og:image を取りに来るため。公開対象は厳密に単一キー og/card.jpg のみとし、
+    // og/ 配下の他のキーや通常ページは署名検証を要求する。
+    const isPublicOg = key === 'og/card.jpg';
+    if (!isPublicOg) {
+      const expiresText = url.searchParams.get('e') ?? '';
+      const cidrParam = url.searchParams.get('i') ?? '';
+      const signatureParam = url.searchParams.get('s') ?? '';
+      if (!/^\d{1,12}$/.test(expiresText) || !signatureParam) {
+        return failure(env, 403, 'This URL is missing its signature.');
+      }
+      if (Number(expiresText) <= Math.floor(Date.now() / 1000)) {
+        return failure(env, 403, 'This URL has expired.');
+      }
+      const signature = base64UrlToBytes(signatureParam);
+      if (!signature) return failure(env, 403, 'This URL has an invalid signature.');
+      const verified = await crypto.subtle.verify(
+        'RSASSA-PKCS1-v1_5',
+        await publicKey(env),
+        signature,
+        encoder.encode(`${url.pathname}\n${expiresText}\n${cidrParam}`),
+      );
+      if (!verified) return failure(env, 403, 'This URL has an invalid signature.');
+      if (cidrParam) {
+        const cidrs = decodeCidrs(cidrParam);
+        const clientIp = request.headers.get('cf-connecting-ip') ?? '';
+        if (!cidrs || !ipInCidrs(clientIp, cidrs)) {
+          return failure(env, 403, 'This URL is limited to the allowed network.');
+        }
+      }
+    }
     const object = await env.CONTENT.get(key);
     if (!object) return failure(env, 404, 'Not found.');
     const headers = securityHeaders(env, object.httpMetadata?.contentType ?? 'application/octet-stream');

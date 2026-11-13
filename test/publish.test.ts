@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { loadConfig } from '../src/config.js';
-import { buildOnly, publish, share } from '../src/publish.js';
+import type { BuiltPage } from '../src/bundle.js';
+import { buildOnly, matchingPages, publish, share } from '../src/publish.js';
 
 const CONSOLE_DOMAIN = 'console.example.com';
 
@@ -222,6 +223,12 @@ test('publish acquires a lock, uploads each page to the deviceId/gen-prefixed R2
     // lock取得→(このテストでは1件のみなので)renewは呼ばれない→commitの順
     assert.deepEqual(fetchCalls.map((call) => call.path), ['/api/device/publish/lock', '/api/device/publish/commit']);
 
+    // リンクプレビュー画像（固定キー og/card.jpg）は公開ページがあるときだけ公開バケットへ置かれる
+    const ogCalls = s3Calls.filter((call) => call.Key === 'og/card.jpg');
+    assert.equal(ogCalls.length, 1);
+    assert.equal(ogCalls[0].Bucket, 'html-share-content');
+    assert.equal(ogCalls[0].ContentType, 'image/jpeg');
+    s3Calls.splice(0, s3Calls.length, ...s3Calls.filter((call) => call.Key !== 'og/card.jpg'));
     assert.equal(s3Calls.length, 1);
     const expectedBody = Buffer.from('<!doctype html><title>Demo</title><h1>Demo</h1>');
     // bundleHtml()がプライバシー用metaタグ等を注入するため、アップロード本文は
@@ -306,4 +313,39 @@ test('buildOnly refuses a concurrent local publish lock before touching the buil
   mkdirSync(lock, { recursive: true });
   writeFileSync(path.join(lock, 'pid'), `${process.pid}\n`);
   assert.throws(() => buildOnly(config), /Another publish is in progress/);
+});
+
+function page(slug: string, title = slug): BuiltPage {
+  return {
+    slug,
+    title,
+    source: `${slug}.html`,
+    updatedAt: '2026-08-27T00:00:00.000Z',
+    date: '2026-08-27T00:00:00.000Z',
+    repository: 'test',
+    stream: 'test',
+    streamLabel: 'Test',
+    streamChip: 'Test',
+    streamChip: 'Test',
+    objectKey: `pages/${slug}/index.html`,
+    visibility: 'public',
+  };
+}
+
+test('prefers an exact slug over prefix and title matches', () => {
+  const exact = page('report-2026-08-04-141049');
+  const longer = page('report-2026-08-04-141049-ja');
+  assert.deepEqual(matchingPages([exact, longer], exact.slug), [exact]);
+});
+
+test('prefers a unique exact title over partial title matches', () => {
+  const exact = page('weekly', 'Weekly review');
+  const longer = page('weekly-team', 'Weekly review for the team');
+  assert.deepEqual(matchingPages([exact, longer], 'Weekly review'), [exact]);
+});
+
+test('keeps partial matching when there is no exact slug', () => {
+  const first = page('release-notes', 'Release notes');
+  const second = page('roadmap', 'Release roadmap');
+  assert.deepEqual(matchingPages([first, second], 'Release'), [first, second]);
 });

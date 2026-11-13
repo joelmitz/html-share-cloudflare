@@ -64,7 +64,9 @@ function securityHeaders(env: Env, extra: Record<string, string> = {}): Headers 
   headers.set('referrer-policy', 'no-referrer');
   headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains; preload');
   headers.set('cache-control', 'no-store, max-age=0');
-  headers.set('x-robots-tag', 'noindex, nofollow, nosnippet, noimageindex, noarchive');
+  // nosnippet / noimageindex は付けない（upstream cbc3ccbe）。noindex が検索エンジンには
+  // 効いている一方、リンクプレビューのクローラーがこれを読むとカードを縮める側にしか働かない。
+  headers.set('x-robots-tag', 'noindex, nofollow, noarchive');
   headers.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   for (const [name, value] of Object.entries(extra)) headers.set(name, value);
   return headers;
@@ -122,11 +124,38 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const CARD_KINDS = new Set(['', 'run', 'todo']);
+
+/**
+ * カードの種類。run＝承認すると Claude が recommendation を実行する、
+ * todo＝本人にしかできない作業の知らせで、承認ボタンは「済んだ」の合図になる。
+ * 空は従来どおり、承認かコメントを返す確認事項。
+ */
+export function cardKind(value: unknown): string {
+  const kind = typeof value === 'string' ? value.trim() : '';
+  if (!CARD_KINDS.has(kind)) throw Object.assign(new Error('kind must be run or todo'), { statusCode: 400 });
+  return kind;
+}
+
 function cleanSourceList(value: unknown, name: string, maximum: number): string[] {
   if (!Array.isArray(value) || value.length > maximum) {
     throw Object.assign(new Error(`${name} is invalid`), { statusCode: 400 });
   }
   return [...new Set(value.map((item) => clean(item, name, 500, true)))];
+}
+
+export function cleanShelfDone(value: unknown, stored: unknown): string[] {
+  if (value === undefined) {
+    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : [];
+  }
+  return cleanSourceList(value, 'shelfDone', 300);
+}
+
+export function cleanShelfAdded(value: unknown, stored: unknown): string[] {
+  if (value === undefined) {
+    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : [];
+  }
+  return cleanSourceList(value, 'shelfAdded', 100);
 }
 
 function titleFromBody(text: string): string {
@@ -207,6 +236,7 @@ interface TaskRow {
   question: string;
   context: string;
   recommendation: string;
+  kind: string;
   target: string | null;
   status: string;
   approved: number | null;
@@ -231,6 +261,7 @@ function publicTask(row: TaskRow): Record<string, unknown> {
     question: row.question,
     context: row.context,
     recommendation: row.recommendation,
+    ...(row.kind ? { kind: row.kind } : {}),
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -687,6 +718,8 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
         recentSources: row ? JSON.parse(row.recent_sources) : [],
         hiddenSources: row ? JSON.parse(row.hidden_sources) : [],
         readMarks: row?.read_marks ? JSON.parse(row.read_marks) : null,
+        shelfDone: row ? JSON.parse(row.shelf_done) : [],
+        shelfAdded: row ? JSON.parse(row.shelf_added) : [],
         updatedAt: row?.updated_at ?? null,
       });
     }
@@ -696,16 +729,22 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
       const recentSources = cleanSourceList(body.recentSources ?? [], 'recentSources', 6);
       const hiddenSources = cleanSourceList(body.hiddenSources ?? [], 'hiddenSources', 500);
       const readMarks = cleanReadMarks(body.readMarks ?? {}, 800);
+      const stored = body.shelfDone === undefined || body.shelfAdded === undefined
+        ? await env.DB.prepare('SELECT shelf_done, shelf_added FROM preferences WHERE id = 1').first<Record<string, string>>()
+        : null;
+      const shelfDone = cleanShelfDone(body.shelfDone, stored ? JSON.parse(stored.shelf_done) : undefined);
+      const shelfAdded = cleanShelfAdded(body.shelfAdded, stored ? JSON.parse(stored.shelf_added) : undefined);
       const updatedAt = new Date().toISOString();
       await env.DB.prepare(
-        `INSERT INTO preferences (id, starred_sources, recent_sources, hidden_sources, read_marks, updated_at)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT (id) DO UPDATE SET starred_sources = ?1, recent_sources = ?2, hidden_sources = ?3, read_marks = ?4, updated_at = ?5`,
+        `INSERT INTO preferences (id, starred_sources, recent_sources, hidden_sources, read_marks, shelf_done, shelf_added, updated_at)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT (id) DO UPDATE SET starred_sources = ?1, recent_sources = ?2, hidden_sources = ?3,
+           read_marks = ?4, shelf_done = ?5, shelf_added = ?6, updated_at = ?7`,
       ).bind(
         JSON.stringify(starredSources), JSON.stringify(recentSources), JSON.stringify(hiddenSources),
-        JSON.stringify(readMarks), updatedAt,
+        JSON.stringify(readMarks), JSON.stringify(shelfDone), JSON.stringify(shelfAdded), updatedAt,
       ).run();
-      return json(env, 200, { starredSources, recentSources, hiddenSources, readMarks, updatedAt });
+      return json(env, 200, { starredSources, recentSources, hiddenSources, readMarks, shelfDone, shelfAdded, updatedAt });
     }
     if (verb === 'POST' && path === '/api/owner/shares') {
       const body = await parseBody(request);
@@ -818,8 +857,8 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
       const id = crypto.randomUUID();
       const iso = new Date().toISOString();
       await env.DB.prepare(
-        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, status, created_at, updated_at, expires_at)
-         VALUES (?1, ?2, 'claude-code', ?3, ?4, ?5, ?6, ?7, 'waiting', ?8, ?8, ?9)`,
+        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, kind, status, created_at, updated_at, expires_at)
+         VALUES (?1, ?2, 'claude-code', ?3, ?4, ?5, ?6, ?7, ?8, 'waiting', ?9, ?9, ?10)`,
       ).bind(
         id, current.id,
         clean(body.sessionId, 'sessionId', 180, true),
@@ -827,6 +866,7 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
         clean(body.question, 'question', 1000, true),
         clean(body.context, 'context', 3000),
         clean(body.recommendation, 'recommendation', 1000),
+        cardKind(body.kind),
         iso, now + TASK_TTL_SECONDS,
       ).run();
       const row = await env.DB.prepare(`${TASK_SELECT} WHERE t.id = ?1`).bind(id).first<TaskRow>();
