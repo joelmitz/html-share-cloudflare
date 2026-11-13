@@ -31,7 +31,7 @@ export default defineConfig(async () => {
           compatibilityDate: '2026-08-01',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
-          r2Buckets: ['CONTENT'],
+          r2Buckets: ['CONTENT', 'INTERNAL'],
           // env.ASSETS（Workers Static Assets、設計§5）のスタブ。ディレクトリ要求の
           // 末尾スラッシュ付与・index.html解決はASSETS自体（プラットフォーム機能）の
           // 責務であり本番実測で確認する（移行手順§5.1）。ここでの関数バインディングは
@@ -67,6 +67,7 @@ export default defineConfig(async () => {
             OWNER_EMAIL: 'owner@example.com',
             CONSOLE_ORIGIN: 'https://console.example.com',
             CONTENT_ORIGIN: 'https://content.example.com',
+            INTERNAL_ORIGIN: 'https://internal.example.com',
             MAXIMUM_SHARE_DAYS: '30',
             OWNER_LINK_DAYS: '30',
             ALLOWED_INTERNAL_CIDRS: '["203.0.113.0/24"]',

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { parse, stringify } from 'yaml';
+import { isMap, isSeq, parse, parseDocument, stringify } from 'yaml';
 
 export interface PageConfig {
   path: string;
@@ -14,6 +14,38 @@ export interface PageConfig {
   // 外部共有したいページだけ'public'を明示する（opt-in。誤って個人的な
   // 内容を外部共有してしまう事故を構造的に防ぐための既定値）
   visibility?: 'public' | 'internal';
+  /** 進行中チップに出すテーマの短い名前。同じテーマのどれか1ページに書けばよい */
+  streamChip?: string;
+  /** 見直し日（YYYY-MM-DD）。content.retainDays を過ぎても、この日までは配信を続ける */
+  keep?: string;
+}
+
+/**
+ * 進行中フィルターの1項目。ページではなく「まだ終わっていない仕事」の単位で持つ。
+ * stream を書けばチップでそのテーマに絞り込み、url は絞り込み中の見出しにリンクとして出す（少なくとも一方）。
+ */
+export interface ShelfItemConfig {
+  id: string;
+  /** 省略すると、テーマの項目はテーマのチップ名（streamChip）、url だけの項目は id を名前にする */
+  title?: string;
+  stream?: string;
+  url?: string;
+  /**
+   * url だけの項目の締切（YYYY-MM-DD）。翌日を過ぎると進行中フィルターから自動で消える。
+   * テーマの項目は content.streamDues が正本で、そちらがあれば due は使わない
+   */
+  due?: string;
+  note?: string;
+  /** url 項目を進行中フィルターへ載せた日（YYYY-MM-DD）。締切なしの並び順と「◯日動きなし」に使う */
+  added?: string;
+  /** 書いておくと進行中フィルターに出さない */
+  done: boolean;
+}
+
+/** テーマの期限の1件。what は「リハーサル」「本番」のような何の日か */
+export interface StreamDue {
+  date: string;
+  what: string | null;
 }
 
 export interface HtmlShareConfig {
@@ -35,7 +67,33 @@ export interface HtmlShareConfig {
     ownerLinkDays: number;
     maximumShareDays: number;
     maximumAssetBytes: number;
+    /**
+     * 最終更新からこの日数を過ぎたページを配信から外し、一覧の保管庫へ移す。
+     * 省略すると保管庫へは移さない（すべて配信を続ける）
+     */
+    retainDays?: number;
     allowedInternalCidrs: string[];
+    /** リンクプレビュー（OGP）で名乗るアプリ名 */
+    siteName: string;
+    /**
+     * リンクプレビューに出す画像の絶対URL。省略すると同梱の画像（assets/og-card.jpg）を使う。
+     * false にすると og:image を出さない
+     */
+    ogImageUrl?: string | false;
+    /** カードの大きさ。省略すると summary（各媒体でいちばん小さいカード） */
+    ogCardType?: 'summary' | 'summary_large_image';
+    /**
+     * 同梱のアイコン（web/icons/ と web/favicon.ico）を差し替えるフォルダ。設定ファイルからの相対パス。
+     * 同じ名前のファイルだけを上書きする。複数のサイトをアイコンの色で見分けたいときに使う
+     */
+    iconsDir?: string;
+    /** 進行中フィルター。省略すると進行中フィルターを出さない */
+    shelf?: ShelfItemConfig[];
+    /**
+     * テーマキー → 期限の一覧。進行中フィルターの項目にも、画面の押しピンで足したテーマにも同じ期限が出る。
+     * 画面が今日以降でいちばん近い日を選ぶので、節目が複数あれば全部並べる
+     */
+    streamDues?: Record<string, StreamDue[]>;
   };
   configFile: string;
   baseDir: string;
@@ -58,6 +116,97 @@ function hostname(value: unknown, name: string): string {
     throw new Error(`${name} must be a hostname without a scheme or path`);
   }
   return result;
+}
+
+/** リンクプレビューの画像URL。クローラーが認証なしで取れる先だけを許す。 */
+function httpsUrl(value: unknown, name: string): string {
+  const result = text(value, name);
+  let parsed: URL;
+  try {
+    parsed = new URL(result);
+  } catch {
+    throw new Error(`${name} must be an absolute https URL`);
+  }
+  if (parsed.protocol !== 'https:') throw new Error(`${name} must use https`);
+  return parsed.toString();
+}
+
+/** 進行中フィルターの締切や追加日。YAML が日付として読んだ値も文字列へ戻す */
+function isoDate(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const result = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(result) || Number.isNaN(Date.parse(result))) {
+    throw new Error(`${name} must be a date like 2026-01-31`);
+  }
+  return result;
+}
+
+/** 進行中フィルターのリンク。画面から開く先なので http(s) だけを許す */
+function linkUrl(value: unknown, name: string): string {
+  const result = text(value, name);
+  let parsed: URL;
+  try {
+    parsed = new URL(result);
+  } catch {
+    throw new Error(`${name} must be an absolute http(s) URL`);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error(`${name} must use http or https`);
+  return parsed.toString();
+}
+
+/**
+ * content.streamDues を読む。書式は { テーマキー: { 日付: 何の日 } }。日付だけの配列も受ける。
+ * 空の {} は「期限なし」として受け、日付順に並べ直す
+ */
+function streamDuesConfig(value: unknown): Record<string, StreamDue[]> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new Error('content.streamDues must be a map of theme keys');
+  const out: Record<string, StreamDue[]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const name = `content.streamDues.${key}`;
+    const pairs: [unknown, unknown][] = raw === null || raw === undefined
+      ? []
+      : Array.isArray(raw)
+        ? raw.map((date) => [date, null])
+        : typeof raw === 'object'
+          ? Object.entries(raw as Record<string, unknown>)
+          : [[raw, null]];
+    out[key] = pairs
+      .map(([date, what]) => ({
+        date: isoDate(date, name) ?? '',
+        what: what === null || what === undefined || String(what).trim() === '' ? null : String(what).trim(),
+      }))
+      .filter((due) => due.date !== '')
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+  return out;
+}
+
+function shelfItems(value: unknown): ShelfItemConfig[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error('content.shelf must be an array');
+  const seen = new Set<string>();
+  return value.map((item: unknown, index: number) => {
+    const name = `content.shelf[${index}]`;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`${name} must be an object`);
+    const record = item as Record<string, unknown>;
+    const id = text(record.id, `${name}.id`);
+    if (seen.has(id)) throw new Error(`${name}.id is duplicated: ${id}`);
+    seen.add(id);
+    const stream = typeof record.stream === 'string' && record.stream.trim() ? record.stream.trim() : undefined;
+    const url = record.url === undefined || record.url === null ? undefined : linkUrl(record.url, `${name}.url`);
+    if (!stream && !url) throw new Error(`${name} needs stream or url`);
+    return {
+      id,
+      title: typeof record.title === 'string' && record.title.trim() ? record.title.trim() : undefined,
+      stream,
+      url,
+      due: isoDate(record.due, `${name}.due`),
+      note: typeof record.note === 'string' && record.note.trim() ? record.note.trim() : undefined,
+      added: isoDate(record.added, `${name}.added`),
+      done: Boolean(record.done),
+    };
+  });
 }
 
 function cidr(value: unknown, name: string): string {
@@ -137,12 +286,34 @@ export function loadConfig(file?: string): HtmlShareConfig {
           streamLabel: typeof page.streamLabel === 'string' ? page.streamLabel.trim() : undefined,
           // 未指定・不正値はfail-closedで'internal'（外部共有はopt-inのみ）
           visibility: page.visibility === 'public' ? 'public' : 'internal',
+          streamChip: typeof page.streamChip === 'string' && page.streamChip.trim() ? page.streamChip.trim() : undefined,
+          keep: isoDate(page.keep, `content.pages[${index}].keep`),
         };
       }),
       ownerLinkDays: positiveInteger(content.ownerLinkDays, 30, 'content.ownerLinkDays'),
       maximumShareDays: positiveInteger(content.maximumShareDays, 30, 'content.maximumShareDays'),
       maximumAssetBytes: positiveInteger(content.maximumAssetBytes, 10 * 1024 * 1024, 'content.maximumAssetBytes'),
+      retainDays: content.retainDays === undefined || content.retainDays === null
+        ? undefined
+        : positiveInteger(content.retainDays, 30, 'content.retainDays'),
       allowedInternalCidrs,
+      siteName: typeof content.siteName === 'string' && content.siteName.trim()
+        ? content.siteName.trim()
+        : '#HTML共有くん',
+      ogImageUrl: content.ogImageUrl === undefined || content.ogImageUrl === null
+        ? undefined
+        : content.ogImageUrl === false || content.ogImageUrl === 'none'
+          ? false
+          : httpsUrl(content.ogImageUrl, 'content.ogImageUrl'),
+      ogCardType: content.ogCardType === 'summary_large_image' ? 'summary_large_image'
+        : content.ogCardType === undefined || content.ogCardType === null || content.ogCardType === 'summary'
+          ? undefined
+          : (() => { throw new Error('content.ogCardType must be "summary" or "summary_large_image"'); })(),
+      iconsDir: content.iconsDir === undefined || content.iconsDir === null
+        ? undefined
+        : text(content.iconsDir, 'content.iconsDir'),
+      shelf: shelfItems(content.shelf),
+      streamDues: streamDuesConfig(content.streamDues),
     },
     configFile,
     baseDir: path.dirname(configFile),
@@ -170,6 +341,28 @@ export function addPageToConfig(
   raw.content.pages.push(entry);
   writeFileSync(configFile, stringify(raw, { lineWidth: 120 }));
   return true;
+}
+
+/**
+ * 設定ファイルの content.pages のうち path が一致する1件に keep（見直し日）を書く。
+ * コメントと並びを残すため、文書として読んで該当の値だけ差し替える
+ */
+export function setPageKeep(file: string | undefined, pagePath: string, keep: string): void {
+  const configFile = configPath(file);
+  const document = parseDocument(readFileSync(configFile, 'utf8'));
+  const pages = document.getIn(['content', 'pages']);
+  if (!isSeq(pages)) throw new Error('content.pages must be an array');
+  const index = pages.items.findIndex((item) => {
+    const value = isMap(item) ? item.get('path') : (item as { value?: unknown })?.value;
+    return value === pagePath;
+  });
+  if (index < 0) throw new Error(`content.pages has no entry for ${pagePath}`);
+  if (!isMap(pages.items[index])) {
+    // 文字列だけで書いたページは、path を持つ形へ書き直してから keep を足す
+    pages.items[index] = document.createNode({ path: pagePath });
+  }
+  document.setIn(['content', 'pages', index, 'keep'], keep);
+  writeFileSync(configFile, document.toString({ lineWidth: 120 }));
 }
 
 export function validatedRoots(config: HtmlShareConfig): string[] {

@@ -85,6 +85,8 @@ async function publishPage(
         updatedAt: fields.updatedAt ?? '2026-08-16T00:00:00.000Z',
         bytes: new TextEncoder().encode(html).length,
         md5: await md5Hex(html),
+        // ヘルパーは CONTENT へ put する。未指定だと worker は 'internal' 扱いで INTERNAL を検証しに行く
+        visibility: 'public',
       }],
     }),
   });
@@ -384,4 +386,26 @@ test('a zombie upload into a released generation cannot affect the current publi
   const pagesRow = await SELF.fetch(`${CONSOLE}/api/owner/pages`, { headers: await ownerHeaders() });
   const page = ((await pagesRow.json() as any).pages as any[]).find((p) => p.slug === 'zombie-slug');
   expect(page.objectKey).toBe(second.objectKey); // D1が指すのは常に現行世代
+});
+
+test('shelf preferences survive an older client PUT in real D1', async () => {
+  const headers = await ownerHeaders();
+  const save = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, {
+    method: 'PUT', headers,
+    body: JSON.stringify({ shelfDone: ['plan'], shelfAdded: ['theme'] }),
+  });
+  expect(save.status).toBe(200);
+
+  const older = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, {
+    method: 'PUT', headers,
+    body: JSON.stringify({ starredSources: ['page'] }),
+  });
+  expect(older.status).toBe(200);
+
+  const loaded = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, { headers });
+  expect(loaded.status).toBe(200);
+  const preferences = await loaded.json() as any;
+  expect(preferences.shelfDone).toEqual(['plan']);
+  expect(preferences.shelfAdded).toEqual(['theme']);
+  expect(preferences.starredSources).toEqual(['page']);
 });

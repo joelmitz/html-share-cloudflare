@@ -15,11 +15,32 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.match(dashboard, /インボックス/);
   assert.match(dashboard, /未読に戻す/);
   assert.match(dashboard, /groupByStream/);
+  assert.match(dashboard, /const STREAM_STAR_PREFIX = '@stream:'/, 'カードスターを個別ページと区別する');
+  assert.match(dashboard, /row\.querySelector\('\.row time'\)\?\.before\(shelfPinButton\(stream\)\)/, '1件だけのテーマの行にもピンを置く（時刻と☆の列は他の行と揃える）');
+  assert.match(dashboard, /head\.append\(count, shelfPinButton\(stream\), streamStarButton\(stream\)\)/, 'カード見出しに進行中へ入れるボタンとスターを置く');
+  assert.doesNotMatch(dashboard, /className = 'tlast'/, 'カード見出しに更新時刻を置かない（各行にあるため）');
+  assert.match(dashboard, /\.tcount \{[^}]*margin-left: auto;[^}]*white-space: nowrap;/, '件数は折り返さず右へ寄せる');
+  assert.match(dashboard, /function shelfPinButton[\s\S]{0,1200}aria-pressed[\s\S]{0,1200}if \(item\) doneShelfItem\(item\);\s*else addShelfStream\(stream\.key\);/, '進行中へ入れるボタンは登録済みなら外し、未登録なら既存の追加処理で足す');
+  assert.match(dashboard, /Lucide の pin[^\n]*ISC License/, '押しピンの出典とライセンスを残す');
+  assert.match(dashboard, /class="head"\/><\/svg>/, '押しピンの頭部に塗り分け用の class を付ける');
+  assert.match(dashboard, /\.shelf-pin svg \{[^}]*transform: rotate\(35deg\);/, '押しピンは35度傾ける');
+  assert.match(dashboard, /\.shelf-pin\.on \.head \{ fill: currentColor; \}/, '登録済みは頭部を青で塗る');
+  assert.match(dashboard, /\.shelf-pin \{[^}]*border-radius: \.45rem;[^}]*color: var\(--ink-faint\);/, '角丸と色を☆に揃える');
+  assert.match(dashboard, /\.shelf-pin:active \{ transform: scale\(\.82\); \}/, '押したときの縮みを☆に揃える');
+  assert.match(dashboard, /b\.title = on \? '進行中から外す' : '進行中に入れる';\s*b\.setAttribute\('aria-label'/, '進行中へ入れるボタンに title と aria-label を付ける');
+  assert.match(dashboard, /if \(isStreamStarred\(stream\)\)[\s\S]{0,160}pinnedStreams\.push\(stream\)/, 'カードのスターはテーマ丸ごとスター段へ移す');
+  assert.match(dashboard, /stream\.pages\.filter\(isStarred\)[\s\S]{0,200}rest\.push\(\.\.\.stream\.pages\.filter\(\(page\) => !isStarred\(page\)\)\)/, 'ページのスターはそのページだけスター段へ移す');
+  assert.match(dashboard, /for \(const stream of groupByStream\(items\)\)/, 'チップで絞った結果にも同じ並べ方をする');
+  assert.match(dashboard, /appendDateGroup\('スター', pinnedStreams\)/, 'スター段を一覧の先頭に出す');
+  assert.doesNotMatch(dashboard, /chip\('★ スター'/, 'スターをチップ列に置かない');
+  assert.doesNotMatch(dashboard, /STAR_FILTER/, 'スター用の絞り込み状態を持たない');
   assert.match(dashboard, /削除済み/);
   assert.match(dashboard, /api\/owner\/shares/);
   assert.match(list, /function markUnread/);
   assert.match(list, /v: null/);
   assert.match(shell, /class="action star-action"/);
+  assert.match(shell, /const STREAM_STAR_PREFIX = '@stream:'/, '個別ページ側もカードスターを識別する');
+  assert.match(shell, /starredSources = starredSources\.filter\(isValidStarValue\)/, '個別ページから保存してもカードスターを残す');
   assert.match(shell, /class="action unread-action"/);
   assert.match(review, /Claudeへの依頼/);
   assert.match(review, /\/inbox/);
@@ -28,11 +49,107 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.doesNotMatch(review, /<select[^>]*id="compose-target"/);
   assert.match(review, /id="target-list"/);
   assert.match(review, /function renderTargetOptions/);
+  // 送るボタンの影・縮みを▼と候補へ漏らさない。hidden の▼は display:flex に負けず消える
+  assert.doesNotMatch(review, /^\.compose button/m);
+  assert.match(review, /\.compose \.target-open\[hidden\] \{ display: none; \}/);
   assert.match(review, /JSON\.stringify\(\{ question: text, target \}\)/);
   assert.match(review, /targetField\.value = '';/);
+  assert.match(review, /function measureClamps/, '長いカードは実寸で畳む');
+  assert.match(review, /\.body\.clamped/);
+  assert.match(review, /function copyText/, 'カード本文のコピーボタン');
+  assert.match(review, /kind-badge run">承認で実行/, 'run のカードは承認で実行と見せる');
+  assert.match(review, /kind-badge todo">あなたの番/, 'todo のカードは本人の作業と見せる');
+  assert.match(review, /'済んだ'/, 'todo の承認ボタンは済んだの合図');
   assert.match(dashboard, /id="review-dot"/);
   assert.match(dashboard, /function refreshInboxDot/);
   assert.match(dashboard, /\/api\/owner\/reviews/);
+  assert.match(dashboard, /function configureShareOptions/);
+  assert.doesNotMatch(dashboard, /function appendShelf/, '進行中の段は一覧に出さない');
+  assert.match(dashboard, /<nav class="chips" id="chips" aria-label="一覧の絞り込み"><\/nav>\s*<\/header>/, '絞り込みチップはヘッダーの2段目に置く');
+  assert.match(dashboard, /const SHELF_DONE_KEY = 'mb_shelf_done'/);
+  assert.match(dashboard, /shelfDone: \[\.\.\.shelfDone\]/, '✕で外した印を本人設定として同期する');
+  assert.match(dashboard, /let shelfFilter = null;/);
+  assert.match(dashboard, /chip\('すべて', \{ on: shelfFilter === null/, '「すべて」は絞り込みなしで選択状態');
+  assert.match(dashboard, /const select = \(key\) => \(\) => \{ shelfFilter = shelfFilter === key \? null : key; renderHome\(\); \};/, 'チップは押すたびに絞り込みを切り替える');
+  assert.match(dashboard, /function shelfKey\(item\) \{\s*return item\.stream \?\? `@item:\$\{item\.id\}`;/, 'ページの無い項目は id から絞り込みのキーを作る');
+  assert.match(dashboard, /const key = shelfKey\(item\);[\s\S]{0,200}onClick: select\(key\),\s*onDone: \(\) => doneShelfItem\(item\)/, 'どのチップも絞り込みにし、選択中の✕で進行中フィルターから外す');
+  assert.doesNotMatch(dashboard, /window\.open\(item\.url/, 'チップを押しても外部のページへ飛ばさない');
+  assert.doesNotMatch(dashboard, /\.chip\.link/, 'リンク用のチップの見た目を持たない');
+  assert.match(dashboard, /if \(item\?\.url\) \{[\s\S]{0,120}a\.target = '_blank';\s*a\.rel = 'noopener';\s*a\.textContent = '元のスレッド ↗';/, '絞り込み中の見出しに元のスレッドへのリンクを添える');
+  assert.match(dashboard, /liveShelf\(\)\.find\(\(candidate\) => shelfKey\(candidate\) === shelfFilter\)/, '見出しは絞り込みのキーで項目を探す');
+  assert.match(dashboard, /const shelfStreams = new Set\(liveShelf\(\)\.map\(shelfKey\)\);/, 'ページの無い項目の絞り込みも進行中フィルターにある間は保つ');
+  assert.match(dashboard, /const onShelf = new Set\(\(meta\?\.shelf \?\? \[\]\)\.filter\(\(item\) => !isExpiredLedger\(item\)\)\s*\.map\(\(item\) => item\.stream\)/, '台帳のテーマは外した後も自分で足したテーマとして復活させない（期限を全部過ぎた項目だけは足し直せる）');
+  assert.match(dashboard, /chip: page\.streamChip \?\? pageStreamLabel\(page\)/, 'テーマの短い名前はチップ名から取り、無ければ見出しを使う');
+  assert.match(dashboard, /title: summary\.chip, stream: key/, '自分で足したテーマのチップはチップ名で出す');
+  assert.match(dashboard, /if \(onDone && on\) \{/, '✕は選択中のチップにだけ出す');
+  assert.match(dashboard, /: diff > 30 \? `\$\{Math\.floor\(diff \/ 30\)\}ヶ月` : `\$\{diff\}日`;/, 'チップの締切は短い表記で、30日を超えたら月単位');
+  assert.match(dashboard, /function isFarDue\(due\) \{\s*return Boolean\(due\) && due > jstDay\(30\);/, '期限が30日を超える項目は「ほか◯件」へ畳む');
+  assert.match(dashboard, /if \(isFarDue\(item\.due\) && !shelfFarOpen && shelfFilter !== key\) continue;/, '畳むのは期限が先のものだけで、期限の無い項目と絞り込み中の項目は出す');
+  assert.match(dashboard, /more\.classList\.add\('chip-fold'\)/, '「ほか◯件」のチップはカードの .more と別の名前にする');
+  assert.match(dashboard, /if \(showingTrash \|\| showingArchive \|\| filterText\.trim\(\)\) return;/, '削除済み・保管庫と検索中はチップを出さない');
+  assert.match(dashboard, /body\.searching \.chips \{ display: none; \}/);
+  assert.match(dashboard, /if \(open && shelfFilter !== null\) \{\s*shelfFilter = null;/, '検索を開いたら絞り込みを解除する');
+  assert.match(dashboard, /@media \(max-width: 46rem\) \{\s*[^\n]*\n\s*\.chips \{ flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;/, 'スマホ幅はチップを横スクロールにする');
+  assert.match(dashboard, /id="filter-note" hidden/, '絞り込み中の1行を置く');
+  assert.match(dashboard, /aria-pressed/);
+  assert.match(dashboard, /visiblePages\(\)\.filter\(\(page\) => pageStream\(page\) === shelfFilter\)/, '一覧を選んだテーマに絞る');
+  assert.match(dashboard, /filterText\.trim\(\) === '' && shelfFilter === null && \(hidden > 0 \|\| expanded\)/, '絞り込み中は「他N件」を出さない');
+  assert.match(dashboard, /manifest\.internalSharing/);
+  assert.match(dashboard, /manifest\.maximumShareDays/);
+  assert.match(shell, /function configureShareOptions/);
+  assert.match(shell, /manifest\.internalSharing/);
+  assert.match(shell, /manifest\.maximumShareDays/);
+});
+
+test('lets the owner add and remove in-progress items from the theme card pin', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  // チップ列の鉛筆・編集モード・「＋ 追加」と候補パネルは廃止。足し引きはカード見出しの押しピンに一本化
+  assert.doesNotMatch(dashboard, /chipEditing|chipPicking/, '編集モードの状態を持たない');
+  assert.doesNotMatch(dashboard, /chip-picker|picker-item|renderChipPicker/, '追加の候補パネルを持たない');
+  assert.doesNotMatch(dashboard, /\.chip\.edit|chip ghost|＋ 追加'/, '鉛筆と「＋ 追加」のチップを持たない');
+  assert.doesNotMatch(dashboard, /\.chips\.editing/, '編集中の折り返し指定を持たない');
+  assert.match(dashboard, /else addShelfStream\(stream\.key\);/, 'カード見出しの押しピンで進行中へ足す');
+  // リンクだけの項目も絞り込みのチップになるので、選択中の✕で外せる
+  assert.match(dashboard, /onClick: select\(key\),\s*onDone: \(\) => doneShelfItem\(item\)/);
+  // ✕：台帳の項目は shelfDone へ、自分で足したテーマは shelfAdded から消す
+  assert.match(dashboard, /if \(item\.added\) shelfAdded = shelfAdded\.filter\(\(key\) => key !== item\.stream\);\s*else shelfDone\.add\(item\.id\);/);
+  // 追加：台帳にあって外していたら戻し、無ければ shelfAdded に足す
+  assert.match(dashboard, /if \(ledger && shelfDone\.has\(ledger\.id\)\) shelfDone\.delete\(ledger\.id\);\s*else if \(!ledger && !shelfAdded\.includes\(streamKey\)\) shelfAdded\.push\(streamKey\);/);
+  // 並び：台帳の項目のあとに自分で足したテーマ
+  // 台帳の項目と足したテーマを合わせて期限の近い順。期限の無いもの同士は元の並び（台帳 → 足した順）
+  assert.match(dashboard, /return \[\.\.\.ledger, \.\.\.added\]\.sort\(/);
+  // 保存：本人設定に載せ、端末間は保存値を正とする（和集合にしない）
+  assert.match(dashboard, /const SHELF_ADDED_KEY = 'mb_shelf_added'/);
+  assert.match(dashboard, /shelfDone: \[\.\.\.shelfDone\],\s*shelfAdded,/, '足したテーマも本人設定として同期する');
+  assert.match(dashboard, /shelfDone = new Set\(\(saved\.shelfDone \?\? \[\]\)/);
+  assert.match(dashboard, /shelfAdded = \[\.\.\.new Set\(\(saved\.shelfAdded \?\? \[\]\)/);
+  assert.doesNotMatch(dashboard, /\.\.\.remoteShelf, \.\.\.shelfDone/, '進行中の印を和集合で合わせない');
+});
+
+test('does not show a global update time in the toolbar', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  // 最新の更新時刻は一覧の先頭行に出ているので、右上には置かない
+  assert.doesNotMatch(dashboard, /brand-meta|brandMeta|setStamp/);
+  assert.doesNotMatch(dashboard, /ページ ／ \$\{fmtDateTime/, 'ページ件数は出さない');
+});
+
+test('loads iframe pages without adding child-frame history entries', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  assert.match(dashboard, /function loadFrame/);
+  assert.match(dashboard, /view\.location\.replace\(url\)/);
+  assert.doesNotMatch(dashboard, /frame\.src = current\.href/);
+  assert.doesNotMatch(dashboard, /frame\.removeAttribute\('src'\)/);
+});
+
+test('keeps generated report sections within the mobile viewport', () => {
+  const template = readFileSync(path.join(root, 'skills', 'create-html', 'assets', 'brief-template.html'), 'utf8');
+  assert.match(template, /\.grid > \*, \.ba > \* \{ min-width: 0; \}/);
+});
+
+test('the CLI review client sends the payload hash header', () => {
+  const client = readFileSync(path.join(root, 'src', 'review-client.ts'), 'utf8');
+  assert.match(client, /'x-amz-content-sha256'/);
+  assert.doesNotMatch(client, /'x-content-sha256'/);
 });
 
 test('places a logout button to the right of the inbox button', () => {
@@ -99,6 +216,103 @@ test('folds monthly calendars into a single column on narrow screens', () => {
   assert.doesNotMatch(calendar, /\bfetch\s*\(/);
 });
 
+test('closes share popovers from an overlay, Escape, and a timed toast', () => {
+  for (const file of [['web', 'app', 'index.html'], ['web', 'mobile-page-shell.js']]) {
+    const source = readFileSync(path.join(root, ...file), 'utf8');
+    assert.match(source, /toast-meta/);
+    assert.match(source, /popover-dismiss|page-popover-dismiss/);
+    assert.match(source, /event\.key !== 'Escape'/);
+    assert.match(source, /aria-haspopup="menu"/);
+  }
+});
+
+test('keeps mobile input fields at 16px so iOS Safari does not zoom in', () => {
+  // iOS Safari は 16px 未満の input / textarea / select にフォーカスすると
+  // ページごと拡大する。戻すにはピンチ操作が要るので、拡大したまま横幅が画面から
+  // はみ出し続ける。補助的な欄でも下回らせない。
+  //
+  // ⚠️ font-size を「自分で明示していること」まで要求する。継承任せを許すと、親が
+  // 小さいときに黙って小さくなる。実際に踏んだのは次の2系統:
+  //   - 検索欄 #q が .82rem（13.1px）。class を持たないので旧検査が見逃していた
+  //   - 共有パネルの select が font: inherit で、親 label の .68rem を継承して 10.9px
+  const INPUT_TAGS = ['input', 'textarea', 'select'];
+  let scanned = 0;
+  for (const file of [
+    ['web', 'review', 'index.html'],
+    ['web', 'app', 'index.html'],
+    ['web', 'mobile-page-shell.js'],
+  ]) {
+    const source = readFileSync(path.join(root, ...file), 'utf8');
+    const label = file.join('/');
+
+    // ① 入力欄そのものを集める（HTML の属性と、JS で組み立てる場合の両方）
+    const fields: { tag: string; id: string | null; classes: string[] }[] = [];
+    for (const m of source.matchAll(/<(input|textarea|select)\b([^>]*)>/g)) {
+      fields.push({
+        tag: m[1],
+        id: /\bid="([^"]+)"/.exec(m[2])?.[1] ?? null,
+        classes: (/\bclass="([^"]+)"/.exec(m[2])?.[1] ?? '').split(/\s+/).filter(Boolean),
+      });
+    }
+    for (const m of source.matchAll(/(input|textarea|select)\.className\s*=\s*['"]([^'"]+)/g)) {
+      fields.push({ tag: m[1], id: null, classes: m[2].split(/\s+/).filter(Boolean) });
+    }
+
+    // ② font-size を与えている CSS ルールを、どの入力欄に効くかで振り分ける
+    const rules: { last: string; px: number; sel: string }[] = [];
+    for (const m of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const size = /font-size:\s*([\d.]+)(rem|px|em)/.exec(m[2]);
+      if (!size) continue;
+      const px = size[2] === 'px' ? Number(size[1]) : Number(size[1]) * 16;
+      for (const sel of m[1].split(',')) {
+        // 末尾の単純セレクタだけがその要素自身を指す（`.share-panel select` なら select）
+        const last = sel.trim().split(/[\s>+~]+/).filter(Boolean).pop()?.replace(/:{1,2}[\w-]+(\([^)]*\))?/g, '');
+        if (last) rules.push({ last, px, sel: sel.trim() });
+      }
+    }
+
+    for (const field of fields) {
+      scanned += 1;
+      const hits = rules.filter((r) =>
+        r.last === field.tag ||
+        (field.id !== null && r.last === `#${field.id}`) ||
+        field.classes.some((c) => r.last === `.${c}`));
+      const name = field.id ? `#${field.id}` : field.classes.length ? `.${field.classes.join('.')}` : `<${field.tag}>`;
+      assert.ok(hits.length > 0,
+        `${label} の ${name} は font-size を自分で明示する（継承任せだと親の縮小に引きずられ、iOS Safari が拡大する）`);
+      for (const hit of hits) {
+        assert.ok(hit.px >= 16,
+          `${label} の ${name} に効く \`${hit.sel}\` が ${hit.px}px（16px 未満。iOS Safari が入力欄フォーカス時にページごと拡大する）`);
+      }
+    }
+    assert.ok(INPUT_TAGS.length === 3);
+  }
+  assert.ok(scanned >= 7, `入力欄を ${scanned} 件しか走査していない（検査が対象を読めていない疑い）`);
+});
+
+test('refreshes the dashboard, inbox, and every bundled page by pulling down at the top', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  const review = readFileSync(path.join(root, 'web', 'review', 'index.html'), 'utf8');
+  const pull = readFileSync(path.join(root, 'web', 'pull-to-refresh.js'), 'utf8');
+  const bundle = readFileSync(path.join(root, 'src', 'bundle.ts'), 'utf8');
+
+  assert.match(dashboard, /pull-to-refresh\.js/);
+  assert.match(review, /pull-to-refresh\.js/);
+  assert.match(pull, /document\.scrollingElement\?\.scrollTop/);
+  assert.match(pull, /Math\.abs\(deltaX\) > Math\.abs\(deltaY\)/);
+  assert.match(pull, /touchmove[\s\S]{0,520}event\.preventDefault\(\)/);
+  assert.match(pull, /distance >= TRIGGER_DISTANCE/);
+  assert.match(pull, /location\.reload\(\)/);
+  assert.match(bundle, /\['mobile-tables\.js', 'mobile-calendar\.js', 'pull-to-refresh\.js'\]/);
+});
+
+test('folds monthly calendars into a single column on narrow screens', () => {
+  const calendar = readFileSync(path.join(root, 'web', 'mobile-calendar.js'), 'utf8');
+  assert.match(calendar, /max-width: 46rem/);
+  assert.match(calendar, /data-mb-cal/);
+  assert.doesNotMatch(calendar, /\bfetch\s*\(/);
+});
+
 test('does not ship the discarded simplified dashboard files', () => {
   for (const file of ['app.css', 'app.js', 'review.html', 'review.js']) {
     assert.throws(() => readFileSync(path.join(root, 'web', 'app', file), 'utf8'));
@@ -148,7 +362,7 @@ test('the share dialog on both clients sends deviceId per the device-scoped shar
   const shell = readFileSync(path.join(root, 'web', 'mobile-page-shell.js'), 'utf8');
 
   assert.match(dashboard, /deviceId:\s*page\.deviceId,\s*\n\s*slug:\s*page\.slug,/);
-  assert.match(shell, /deviceId:\s*currentPage\.deviceId,\s*\n\s*slug:\s*currentPage\.slug,/);
+  assert.match(shell, /deviceId:\s*currentPage\.deviceId,\s*slug:\s*currentPage\.slug,/);
 });
 
 test('web/app.webmanifest is a static file matching the content publish.ts used to generate', () => {
@@ -179,5 +393,33 @@ test('the review inbox shows an in_progress badge with the claiming device name 
   assert.doesNotMatch(branchBody, /approve|send\.className/);
   // オーナー削除（discard）は状態を問わず常設なので、in_progress分岐の外（カード共通部）で
   // 既に append 済みであることを確認する
-  assert.match(review, /card\.querySelector\('\.meta'\)\.append\(discard\);/);
+  assert.match(review, /card\.querySelector\('\.meta'\)\.append\(copy, discard\);/);
+});
+
+test('cards and boxes in the shipped UI have no accent edges', () => {
+  // One thick colored side on a card (a top or left stripe) reads as a stock AI-generated layout.
+  // State is shown with a small dot or a word instead.
+  const files = ['web/app/index.html', 'web/review/index.html', 'web/page-list.js', 'web/mobile-page-shell.js'];
+  const offenders: string[] = [];
+  for (const file of files) {
+    readFileSync(path.join(root, file), 'utf8').split('\n').forEach((line, i) => {
+      if (/border-(top|left|right|bottom|inline-start|inline-end)\s*:\s*([2-9]|\d{2,})px\s+solid/.test(line)) offenders.push(`${file}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('does not throw when the page frame is on another origin', () => {
+  // Pages are served from the content domain, so reading the frame's scroll position is blocked.
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  assert.match(dashboard, /function watchFrameScroll\(\) \{[\s\S]{0,400}try \{\s*lastY = frameWindow\.scrollY;\s*\} catch \{/);
+});
+
+test('lists archived pages behind a toggle and asks the inbox to revive them', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  assert.match(dashboard, /<button id="archive-toggle" type="button">/, '保管庫の入口は削除済みと並べて一覧の末尾に置く');
+  assert.match(dashboard, /archivedPages = \[\.\.\.\(data\.archived \?\? \[\]\)\]/, 'manifest.archived から保管庫を読む');
+  assert.match(dashboard, /function archiveRow\(page\)[\s\S]{0,400}document\.createElement\('div'\)/, '保管庫の行は開けないので a にしない');
+  assert.match(dashboard, /html-share page revive \$\{page\.slug\}/, '戻すコマンドを依頼文に入れる');
+  assert.match(dashboard, /fetch\('\/api\/owner\/reviews', \{[\s\S]{0,200}'x-amz-content-sha256': await sha256\(body\)/, '依頼の POST に本文のハッシュを付ける');
 });

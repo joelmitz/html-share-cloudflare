@@ -6,30 +6,23 @@
 HTML共有くんは、AIコーディングエージェントに作らせたHTMLを1か所へためて、スマホからも読めるようにするツールです。自分のCloudflareアカウントで動かすセルフホスト型で、作者へページや回答が送られることはありません。
 
 <p align="center">
-  <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="66%">
+  <img src="docs/images/dashboard.png" alt="HTML共有くんのメインダッシュボード" width="100%">
+</p>
+<p align="center">
+  <img src="docs/images/page-pc.png" alt="登録したページをPCで開いたところ" width="62%">
   &nbsp;
-  <img src="docs/images/mobile-approval-actions-native.png" alt="AIから届いた承認依頼をスマホで確認" width="31%">
+  <img src="docs/images/mobile-inbox.png" alt="スマホからClaudeへ依頼を置き、Claudeからの確認に答えるインボックス" width="32%">
 </p>
 
 ## 主な機能
 
-- メモや調査結果を見やすいHTMLに整える
-- 作ったHTMLを自分専用の一覧にためる
-- 社内限定や期限付きのURLで共有する
-- 外部共有する予定のないページは、Cloudflare Access限定の閲覧面（`share-internal`）へ置く（既定はこちら。`--public`を明示したページだけ署名URLで外部共有できる）
-- スマホとPCの間で依頼や承認をやり取りする
-
-## 対応エージェント
-
-中身はCLIとスキルなので、Claude Code、Codex、Cursorなど手元のどのエージェントからでも同じように呼び出せます。
-
-## スマホとの連携
-
-- 思いついた作業は、スマホのインボックスへ置いておける。戻って `/inbox` と頼めばエージェントが引き取る
-- 逆向きの `/mobile` は、PCの確認依頼をスマホへ送る。外出先で返した承認やコメントはPC側へ引き継がれる
-
-> [!NOTE]
-> Claude Codeのリモートコントロールとは仕組みが違います。あちらは母艦のPCでセッションを起動したままにしておく必要がありますが、共有くんのやり取りは非同期です。作業をスマホへ送ったあとはPCの電源を切ってよく、外出先で返した回答は、次にPCを開いたときに続きとして取り込めます。
+- **ためる**：エージェントが作ったHTMLを自分専用の一覧へ登録して配信する。画像やフォントは1枚に埋め込むので、リンクが切れない
+- **見つける**：同じ案件のページを1枚のカードにまとめ、新着・スター・進行中の仕事で絞り込める
+- **スマホで読む**：ホーム画面に追加すればアプリのように開ける。はみ出す表やカレンダーはスマホ幅に並べ直す
+- **共有する**：期限付きの共有URLをその場で発行できる。社内限定のURLも選べ、SlackやTeamsに貼るとカードで表示される
+- **古いページをしまう**：更新が止まったページを決めた日数で配信から外し、保管庫にタイトルだけ残す。共有URLもそこで開けなくなり、要るときは1コマンドで戻せる
+- **スマホとやり取りする**：外出先で思いついた依頼を置いておいたり、PCの確認依頼にスマホから答えたりできる
+- **外部へ出さないページはAccess限定に置く**：既定は Cloudflare Access 限定の閲覧面（`share-internal`）。`--public` を明示したページだけ署名URLで外部共有できる
 
 ## 頼み方の例
 
@@ -41,9 +34,20 @@ HTML共有くんは、AIコーディングエージェントに作らせたHTML�
 
 > `/inbox` で、スマホから置いた依頼を引き取って
 
-## セットアップ
+Claude Code、Codex、Cursorなど、手元のどのエージェントからでも同じように使えます。
 
-導入方法は [初回セットアップ](docs/setup.md) にまとめています。公開前に確認したい仕組みは [セキュリティ設計](docs/threat-model.md) を参照してください。
+## Cloudflareの構成
+
+閲覧面（content / internal の各Worker）と、一覧やインボックスを出す管理面（console Worker）を分けています。ページ本体はR2、一覧やインボックスの状態はD1に置き、管理面と社内限定の閲覧面はCloudflare Accessで守ります。詳しくは[アーキテクチャ](docs/architecture.md)を参照してください。
+
+## ドキュメント
+
+- [初回セットアップ](docs/setup.md)
+- [アーキテクチャ](docs/architecture.md)
+- [セキュリティ設計](docs/threat-model.md)
+- [進行中フィルター](docs/progress-filter.md)
+- [保持期限と保管庫](docs/retention.md)
+- [リンクプレビュー（OGP）](docs/link-preview.md)
 
 ## ライセンス
 

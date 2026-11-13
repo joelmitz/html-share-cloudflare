@@ -58,10 +58,12 @@ for (const root of roots) {
       failures.push('create-html: assets/brief-template.html is missing');
     } else {
       const template = readFileSync(templateFile, 'utf8');
-      for (const token of ['<!doctype html>', 'viewport-fit=cover', 'noindex, nofollow', '--hero-gradient']) {
+      for (const token of ['<!doctype html>', 'viewport-fit=cover', 'noindex, nofollow', '--blue-grad', '.hero, .hero *']) {
         if (!template.includes(token)) failures.push(`create-html: template must include ${token}`);
       }
     }
+    if (!existsSync(path.join(root, 'scripts', 'check-html.mjs'))) failures.push('create-html: scripts/check-html.mjs is missing');
+    if (!skill.includes('check-html.mjs')) failures.push('create-html: skill must run the static checker');
     if (!skill.includes('Do not invent facts')) failures.push('create-html: skill must protect source accuracy');
     if (!skill.includes('real IP allowlists')) failures.push('create-html: skill must include the public-safety boundary');
   }
