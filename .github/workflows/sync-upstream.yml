@@ -157,6 +157,33 @@ jobs:
             exit 1
           fi
 
+      # feature にも version だけを同期する（じょえるさん決定 2026-11-13）。
+      # sync-upstream-version.sh は feature ブランチには存在しないため、main 側の
+      # スクリプトを tools/ に取得して使い、feature へファイルは足さない。
+      # タグは repo 全体で共有され main の sync job が同期済み（かつ
+      # sync-upstream-tags.sh は「タグの指す commit が fork main にあること」を
+      # 要求する main 専用の検査）なので、ここでは行わない。
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.FEATURE_BRANCH }}
+          path: work
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Sync upstream package version to feature
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git remote add upstream https://github.com/minorun365/html-share.git
+          bash ../tools/scripts/sync-upstream-version.sh origin upstream "${FEATURE_BRANCH}"
+
       # sync job の Issue とは別タイトルにして、main 側の失敗と混ざらないようにする。
       - name: Open an issue on failure
         if: failure()
