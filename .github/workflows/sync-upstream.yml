@@ -114,3 +114,63 @@ jobs:
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
           fi
+
+  # 作業中ブランチ feature/multi-machine-publish にも upstream/main を自動で取り込む。
+  # 上の sync job とは needs で繋がない独立 job にしてあり、片方が失敗してももう片方は動く。
+  # version/tags の同期は main 専用なのでここでは行わない。
+  # main と feature は互いに統合しない。feature へ入れるのは upstream/main だけ。
+  #
+  # ★注意（じょえるさん決定 2026-11-13「自動マージも試す」）:
+  # - feature は独自実装が大きく、upstream と衝突しやすい。
+  # - 成功すると、レビューなしで merge commit が feature に入る。
+  # - 衝突して同期できなかった場合は、失敗として Issue で知らせる。
+  #   強制上書きはしないので、手動で取り込むこと。
+  sync-feature:
+    runs-on: ubuntu-latest
+    env:
+      FEATURE_BRANCH: feature/multi-machine-publish
+    steps:
+      # 戻り値で成否を判定しない理由は sync job と同じ（merge_type=none が
+      # 「最新」と「衝突」の2義を持つ）。成否は次の step で実際の遅れ数を見て決める。
+      - name: Sync feature branch from upstream
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_TOKEN }}
+        run: |
+          set -uo pipefail
+          out="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/merge-upstream" \
+                   -f branch="${FEATURE_BRANCH}" 2>&1 || true)"
+          echo "$out"
+
+      # ★成否の正本。ブランチ名のスラッシュは compare のパスで %2F にエンコードする。
+      - name: Verify feature branch is in sync with upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          enc="${FEATURE_BRANCH//\//%2F}"
+          cmp="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${enc}...minorun365:html-share:main")"
+          missing="$(printf '%s' "$cmp" | jq -r '.ahead_by')"
+          local_only="$(printf '%s' "$cmp" | jq -r '.behind_by')"
+          echo "missing_from_upstream=${missing} fork_local_commits=${local_only}"
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::${FEATURE_BRANCH} is still ${missing} commit(s) behind upstream after sync (conflict? merge manually)"
+            exit 1
+          fi
+
+      # sync job の Issue とは別タイトルにして、main 側の失敗と混ざらないようにする。
+      - name: Open an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          title="Sync feature branch with upstream failed"
+          body="The scheduled sync of ${FEATURE_BRANCH} with upstream failed (likely a merge conflict; merge upstream/main manually). Run: ${run_url}"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title ${title}" --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
