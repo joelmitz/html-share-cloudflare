@@ -23,17 +23,20 @@ Turn the user's content into one complete HTML file that is calm, readable, and 
 - Main content about 940 px wide, body text at least 15 px, line height around 1.85.
 - Use Japanese system fonts first: `-apple-system`, `BlinkMacSystemFont`, `"Hiragino Sans"`, `"Yu Gothic UI"`, `sans-serif`.
 - Tables have no vertical rules and no `min-width`. On phones the delivered page folds narrow tables into stacked cards, so avoid `white-space: nowrap` on long cells and never shrink text to make a table fit.
+- This contract assumes the page is delivered through html-share, which adds the table folding and keeps the colors light. A host that does neither (a chat artifact viewer, a plain file) lets wide tables overflow and may repaint the page in dark mode. If you must publish there, fold the tables in the page's own CSS and set `color-scheme: light`.
 - Use semantic headings in order, visible focus styles, sufficient color contrast, and descriptive link text.
 - Keep decorative icons minimal. Prefer CSS shapes or inline SVG to emoji-heavy decoration.
 
 ## Writing rules
 
 - Write the body as a declarative report: plain statements and noun phrases, not conversational or polite spoken style. Phrase open questions as statements in a list, and do not write headings as questions. The only exception is text the user will send or read aloud as-is.
+- When the page covers something the reader has not seen before (a product, a tool, a mechanism), open with what it does, which thing the reader already uses it corresponds to, and who uses it in what situation. Results and steps come after that. Do not assume the reader has read an earlier page on the same subject.
 - Give the main topic the most space. Each core item gets its own section with a figure and a line of reasoning (current problem, approach, status, next step). Do not spend three figures on background and leave the main items as bullet points in one card.
 - Do not put backstory, excuses, or rejected options in leads, captions, or table cells. A row says what changed and how; the reasons belong in the working notes, not the page.
 - Do not make the reader go through the same list twice. If the sections explain items one by one, drop those items from any overview table and use a short diagram or two lines of orientation instead. Do not end with a recap of the same list.
 - Keep one main point per screen. Exhaustive coverage of the source material goes to a reference at the end (a link or the path of the source notes), not into the body. When a page reads as busy, cut; do not answer by packing in more.
 - Do not add things the reader must decode first: visual codes that need a legend once there are three or more, abstract identifiers such as `S1`/`S2` or `A`/`B`, or the same number restated in several units. Pick one form for each fact.
+- When comparing design options, explain each one by what the person using it sees and runs into, not by internal names such as setting keys, protocol names, or tool names. An accurate explanation built on those names still leaves the reader unsure what goes wrong today and what gets better. Use this order: what the topic is (one sentence), the current problem, the other option (what happens and where it hurts), the proposed option (what changes for the user), then a one-sentence summary. Label comparison rows with situations the user meets ("can I tell which task asked?", "can I approve it from my phone?"). Give an internal name once, in parentheses, only where it backs up a claim.
 - Show numbers as a chart with few series plus a short table of the key values (about five rows).
 - When asked for more information, add figures at the same rate as text. For each added topic, draw whatever is a breakdown, a flow, a contrast, or a sequence; text alone lowers the share of figures and the page gets harder to read.
 - When a section grows after feedback, rebuild it instead of appending below. Open it with one line giving the order of its parts and number its subheadings. Appended tables, lists, and paragraphs stack into a section nobody can scan.
@@ -51,7 +54,7 @@ Turn the user's content into one complete HTML file that is calm, readable, and 
 
 ## Figures
 
-Count figures before delivery. A page with no `<svg>` or `<img>` should be reconsidered once:
+Count figures before delivery. The checker fails a page with no `<svg>` or `<img>`; a page that truly needs none (a reproduced message, for example) opts out with `<meta name="brief-figures" content="none">`. One figure is not the goal: by default, even when nobody asks, pair every section with a figure and one paragraph of two or three sentences saying what the figure shows and what follows from it. Neither side replaces the other, and one paragraph per figure is the ceiling (the checker warns when half or more of the sections have no figure, when a section with figures has under 150 characters of prose, or when two or more paragraphs follow a figure). When told there is too much of one, set both a floor and a ceiling instead of swinging to the other side. Within that, and draw numeric comparisons (prices, counts, amounts) so the sizes can be seen. Use this table to decide what to draw:
 
 | Content | Figure |
 |---|---|

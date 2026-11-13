@@ -95,6 +95,19 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const CARD_KINDS = new Set(['', 'run', 'todo']);
+
+/**
+ * カードの種類。run＝承認すると Claude が recommendation を実行する、
+ * todo＝本人にしかできない作業の知らせで、承認ボタンは「済んだ」の合図になる。
+ * 空は従来どおり、承認かコメントを返す確認事項。
+ */
+export function cardKind(value: unknown): string {
+  const kind = typeof value === 'string' ? value.trim() : '';
+  if (!CARD_KINDS.has(kind)) throw Object.assign(new Error('kind must be run or todo'), { statusCode: 400 });
+  return kind;
+}
+
 function cleanSourceList(value: unknown, name: string, maximum: number): string[] {
   if (!Array.isArray(value) || value.length > maximum) {
     throw Object.assign(new Error(`${name} is invalid`), { statusCode: 400 });
@@ -160,6 +173,7 @@ interface TaskRow {
   question: string;
   context: string;
   recommendation: string;
+  kind: string;
   target: string | null;
   status: string;
   approved: number | null;
@@ -178,6 +192,7 @@ function publicTask(row: TaskRow): Record<string, unknown> {
     question: row.question,
     context: row.context,
     recommendation: row.recommendation,
+    ...(row.kind ? { kind: row.kind } : {}),
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -455,8 +470,8 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
       const id = crypto.randomUUID();
       const iso = new Date().toISOString();
       await env.DB.prepare(
-        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, status, created_at, updated_at, expires_at)
-         VALUES (?1, ?2, 'claude-code', ?3, ?4, ?5, ?6, ?7, 'waiting', ?8, ?8, ?9)`,
+        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, kind, status, created_at, updated_at, expires_at)
+         VALUES (?1, ?2, 'claude-code', ?3, ?4, ?5, ?6, ?7, ?8, 'waiting', ?9, ?9, ?10)`,
       ).bind(
         id, current.id,
         clean(body.sessionId, 'sessionId', 180, true),
@@ -464,6 +479,7 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
         clean(body.question, 'question', 1000, true),
         clean(body.context, 'context', 3000),
         clean(body.recommendation, 'recommendation', 1000),
+        cardKind(body.kind),
         iso, now + TASK_TTL_SECONDS,
       ).run();
       const row = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?1').bind(id).first<TaskRow>();

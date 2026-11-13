@@ -148,8 +148,34 @@ export function checkHtml(source, { baseDir } = {}) {
     for (const src of missingImages(source, baseDir)) ng.push(`image not found: ${src}`);
   }
 
+  // A page made only of text and tables is hard to take in, so no figure is a defect.
+  // Pages that truly need none (a reproduced message, for example) opt out explicitly.
+  const optOut = /<meta\s+name=["']brief-figures["']\s+content=["']none["']/i.test(source);
+  if (!optOut && !has(/<svg\b/i) && !has(/<img\b/i)) ng.push('no figure on the page; draw the comparisons, flows, breakdowns, or structure (pages that need none: <meta name="brief-figures" content="none">)');
+
   // Review items, not defects.
-  if (!has(/<svg\b/i) && !has(/<img\b/i)) warn.push('no figure on the page; check whether a schedule, flow, or structure would read better as a diagram');
+  // A handful of figures with the rest in text cards still reads as text-heavy, so name the sections without one.
+  const sections = body.split(/<section\b/i).slice(1);
+  const bare = sections
+    .filter((sec) => !/<svg\b|<img\b/i.test(sec))
+    .map((sec, i) => (sec.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i)?.[1] ?? `section ${i + 1}`).replace(/<[^>]+>/g, '').trim().slice(0, 30));
+  if (!optOut && sections.length >= 3 && bare.length * 2 >= sections.length) {
+    warn.push(`${bare.length} of ${sections.length} sections have no figure (${bare.join(', ')}); redraw their cards or lists as a flow, contrast, or breakdown`);
+  }
+  // The opposite imbalance: a section with figures but almost no prose leaves the reader to guess what each figure means.
+  const thin = sections
+    .filter((sec) => /<svg\b|<img\b/i.test(sec))
+    .filter((sec) => sec
+      .replace(/<(svg|figure|h2|h3)\b[\s\S]*?<\/\1>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\s+/g, '').length < 150)
+    .map((sec, i) => (sec.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i)?.[1] ?? `section ${i + 1}`).replace(/<[^>]+>/g, '').trim().slice(0, 30));
+  if (thin.length) warn.push(`sections with figures but under 150 characters of prose (${thin.join(', ')}); add a two-to-four-sentence paragraph saying what each figure shows and what follows from it`);
+  // The upper bound: two or more paragraphs after one figure turn the page back into a wall of text.
+  const heavy = [...body.matchAll(/<\/figure>((?:\s*(?:<!--[\s\S]*?-->\s*)*<p\b(?![^>]*class="(?:note|lead)")[^>]*>[\s\S]*?<\/p>)+)/gi)]
+    .filter((m) => (m[1].match(/<p\b/gi) ?? []).length >= 2)
+    .map((m) => sectionAt(body, m.index));
+  if (heavy.length) warn.push(`two or more paragraphs follow a figure (${heavy.join(', ')}); keep one paragraph of two or three sentences per figure`);
   const tables = (source.match(/<table\b/gi) ?? []).length;
   if (tables > 5) warn.push(`${tables} tables; more than five usually means the structure, not the content, is heavy`);
   // Busy sections: a long table or list usually means rows were appended after each round of feedback.

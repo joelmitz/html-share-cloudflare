@@ -8,7 +8,7 @@ import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, type S3Cl
 import { buildSite, type BuiltPage } from '../src/bundle.js';
 import type { HtmlShareConfig } from '../src/config.js';
 import { loadConfig } from '../src/config.js';
-import { TYPES, acquirePublishLock, assertNotShrinking, buildOnly, matchingPages, share, syncTree } from '../src/publish.js';
+import { TYPES, acquirePublishLock, assertNotShrinking, buildOnly, hasUnpulledConfigChanges, matchingPages, share, syncTree } from '../src/publish.js';
 
 function fixture(pages: Array<{ slug: string; title: string; objectKey: string }>): { config: ReturnType<typeof loadConfig> } {
   const root = mkdtempSync(path.join(tmpdir(), 'html-share-publish-'));
@@ -103,6 +103,12 @@ test('prefers an exact slug over prefix and title matches', () => {
   const exact = page('report-2026-08-04-141049');
   const longer = page('report-2026-08-04-141049-ja');
   assert.deepEqual(matchingPages([exact, longer], exact.slug), [exact]);
+});
+
+test('prefers a unique exact title over partial title matches', () => {
+  const exact = page('weekly', 'Weekly review');
+  const longer = page('weekly-team', 'Weekly review for the team');
+  assert.deepEqual(matchingPages([exact, longer], 'Weekly review'), [exact]);
 });
 
 test('keeps partial matching when there is no exact slug', () => {
@@ -267,4 +273,28 @@ test('a plain shrink is refused without archives, and passes with the explicit o
   } finally {
     if (previous === undefined) delete process.env.HTML_SHARE_ALLOW_SHRINK; else process.env.HTML_SHARE_ALLOW_SHRINK = previous;
   }
+});
+
+function fakeGit(responses: Record<string, string | Error>): (args: string[]) => string {
+  return (args) => {
+    const answer = responses[args[0]];
+    if (answer instanceof Error) throw answer;
+    return answer ?? '';
+  };
+}
+
+test('keeps deleting when the config is not tracked against an upstream', () => {
+  assert.equal(hasUnpulledConfigChanges('/repo/html-share.config.yaml', fakeGit({ 'rev-parse': new Error('no upstream') })), false);
+});
+
+test('keeps deleting when the upstream has not touched the config', () => {
+  assert.equal(hasUnpulledConfigChanges('/repo/html-share.config.yaml', fakeGit({ diff: '' })), false);
+});
+
+test('stops deleting when the upstream added pages that are not pulled yet', () => {
+  assert.equal(hasUnpulledConfigChanges('/repo/html-share.config.yaml', fakeGit({ diff: 'html-share.config.yaml\n' })), true);
+});
+
+test('stops deleting when the upstream cannot be fetched', () => {
+  assert.equal(hasUnpulledConfigChanges('/repo/html-share.config.yaml', fakeGit({ fetch: new Error('offline') })), true);
 });
