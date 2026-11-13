@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -131,12 +132,43 @@ export function assertNotShrinking(remoteCount: number, localCount: number, allo
 }
 
 /**
+ * 設定ファイルを git で複数の端末と共有しているとき、まだ取り込んでいない変更が上流にあるかを調べる。
+ *
+ *   別の端末が足したページは、pull するまでこの端末の build に無い。そのまま送ると
+ *   syncTree は「ローカルに無いキー」として、届いたばかりのページを消してしまう。
+ *   上流で設定ファイルが変わっている、または上流を確かめられないときは true を返し、呼び出し側は消さずに送る。
+ *   git 管理外・上流なしのときは false（従来どおり消す）。
+ */
+export function hasUnpulledConfigChanges(
+  configFile: string,
+  git: (args: string[]) => string = (args) => execFileSync('git', args, {
+    cwd: path.dirname(configFile),
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    timeout: 20_000,
+  }),
+): boolean {
+  try {
+    git(['rev-parse', '--abbrev-ref', '@{u}']);
+  } catch {
+    return false;
+  }
+  try {
+    git(['fetch', '--quiet']);
+    return git(['diff', '--name-only', 'HEAD...@{u}', '--', path.basename(configFile)]).trim() !== '';
+  } catch {
+    return true;
+  }
+}
+
+/**
  * expectedRemovalKeys は、この build で意図して外したファイルのキー（保管庫へ移したページ）。
  * 保持期限で一度に多くのページが外れても、設定の崩れと取り違えて止めないために数へ足す。
  * 数えるのは「いまバケットに実在し、今回の削除対象になるキー」だけ。すでに配信先に無い過去の
  * 保管庫ページまで余裕にすると、現役ページが誤って欠けたときの大量削除を通してしまう
  */
-export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovalKeys: Iterable<string> = []): Promise<void> {
+export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovalKeys: Iterable<string> = [], allowDelete = true): Promise<void> {
   const remote = await remoteObjects(client, bucket);
   const local = files(root);
   const localKeys = new Set(local.map((relative) => relative.split(path.sep).join('/')));
@@ -160,7 +192,7 @@ export async function syncTree(client: S3Client, bucket: string, root: string, e
       CacheControl: 'no-store, max-age=0',
     }));
   }
-  await deleteKeys(client, bucket, [...remote.keys()].filter((key) => !kept.has(key)));
+  if (allowDelete) await deleteKeys(client, bucket, [...remote.keys()].filter((key) => !kept.has(key)));
 }
 
 /**
@@ -275,7 +307,11 @@ export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: st
     const { buildRoot, manifest } = buildUnlocked(config);
     copyConsole(buildRoot, ownerManifest(manifest, config), config);
     const client = r2Client(config);
-    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.map((page) => `pages/${page.slug}/index.html`));
+    const allowDelete = !hasUnpulledConfigChanges(config.configFile);
+    if (!allowDelete) {
+      console.warn('The page list has changes upstream that are not pulled yet (or the upstream could not be checked). Uploading without removing pages; pull and publish again to clean up.');
+    }
+    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.map((page) => `pages/${page.slug}/index.html`), allowDelete);
     await syncTree(client, config.cloudflare.consoleBucket, path.join(buildRoot, 'console'));
     return {
       consoleUrl: `${consoleUrl(config)}/app/index.html`,
@@ -309,8 +345,13 @@ export function share(config: HtmlShareConfig, query: string, days: number): str
 }
 
 export function matchingPages<T extends Pick<BuiltPage, 'slug' | 'title'>>(pages: T[], query: string): T[] {
+  // Exact slug first, then a unique exact title, then partial matches. Without the title
+  // step, a page titled exactly as the query stops resolving once another page's title
+  // starts with the same words.
   const exact = pages.filter((page) => page.slug === query);
   if (exact.length > 0) return exact;
+  const titleExact = pages.filter((page) => page.title === query);
+  if (titleExact.length === 1) return titleExact;
   return pages.filter((page) => page.slug.includes(query) || page.title.includes(query));
 }
 
