@@ -1,3 +1,71 @@
+// ── PCの広い画面では、本文の幅の上限を広げる ─────────────────────────
+// 各ページは本文を .wrap{max-width:940px} のように頭打ちにしていて、そのままだと
+// ウィンドウを横へ伸ばしても左右の余白が増えるだけになる。上限を「元の値」と
+// 「画面幅−左右の余白（最大 WIDE_CAP）」の大きいほうへ置き換える。
+// 画面が狭いうちは元の値が勝つので、見た目は変わらない。
+// このファイルに置くのは、全ページが既に読んでいる共通スクリプトだから。
+// 新しいファイルにすると、配信済みの全ページを作り直して上げ直すことになる。
+(() => {
+  const WIDE_CAP = 1220;   // これ以上は1行が長すぎて読みにくい
+  const SIDE_ROOM = 160;   // 広がっている間も残す左右の余白の合計
+  // 見出し側は「.hero の直下」で拾う。古い版のページは囲みの名前が .hero-in と違ったり、
+  // 囲みが無く h1 などが直下に並んでいたりする。.hero-in だけを広げると、そうしたページで
+  // 本文だけが広がり、見出しが右へずれて見える。
+  const widen = () => {
+    const targets = document.querySelectorAll(
+      '.wrap, .hero > *, body > main, body > article, body > .container, body > .page',
+    );
+    for (const el of targets) {
+      if (el.dataset.mbWide) continue;
+      const max = parseFloat(getComputedStyle(el).maxWidth);
+      // 上限が無い要素と、狭い囲み（わざと細くしてある）は触らない
+      if (!Number.isFinite(max) || max < 800 || max >= WIDE_CAP) continue;
+      el.dataset.mbWide = String(max);
+      el.style.maxWidth = `max(${max}px, min(${WIDE_CAP}px, calc(100vw - ${SIDE_ROOM}px)))`;
+    }
+  };
+  // ── 図（SVG）の文字を、本文の文字と同じくらいの大きさに揃える ──────────────
+  // 図は svg{width:100%} で本文の幅いっぱいに引き伸ばされるので、図の中の文字の大きさは
+  // 「図の設計幅（viewBox）と本文幅の比」で決まり、本文の文字サイズと無関係になる。
+  // 本文 15.5px に対して、図の文字が 14〜27px とページごとにばらつく原因がこれ。
+  // 図の文字の中央値が本文の FIG_RATIO 倍になる幅を図の上限にして、中央へ寄せる。
+  // 上限は固定のpx値なので、スマホのように本文幅のほうが狭い画面では何も変わらない。
+  const FIG_RATIO = 0.95;     // 図の文字（中央値）÷ 本文の文字
+  const FIG_MIN_TEXT = 11;    // 縮めても、図の中のいちばん小さい文字はこれを下回らせない
+  const fitFigures = () => {
+    const sample = document.querySelector('.wrap p, main p, article p') || document.body;
+    const bodyPx = parseFloat(getComputedStyle(sample).fontSize);
+    if (!Number.isFinite(bodyPx)) return;
+    for (const svg of document.querySelectorAll('svg[viewBox]')) {
+      if (svg.dataset.mbFig || svg.hasAttribute('data-marpit-svg') || svg.closest('.hero')) continue;
+      // 幅と高さを属性で固定した図は、幅だけ絞ると縦に余白が残るので触らない
+      if (svg.hasAttribute('width') && svg.hasAttribute('height')) continue;
+      const boxWidth = svg.viewBox.baseVal.width;
+      if (!(boxWidth >= 300)) continue;   // アイコンは対象外
+      const sizes = [];
+      for (const text of svg.querySelectorAll('text')) {
+        const size = parseFloat(getComputedStyle(text).fontSize);
+        const chars = text.textContent.trim().length;
+        if (!Number.isFinite(size) || !chars) continue;
+        // 文字数で重みを付ける（1文字の番号ラベルが大勢を決めないように）
+        for (let i = 0; i < Math.min(chars, 40); i += 1) sizes.push(size);
+      }
+      if (sizes.length < 6) continue;
+      sizes.sort((a, b) => a - b);
+      const median = sizes[Math.floor(sizes.length / 2)];
+      const scale = Math.max((bodyPx * FIG_RATIO) / median, FIG_MIN_TEXT / sizes[0]);
+      svg.dataset.mbFig = scale.toFixed(3);
+      svg.style.maxWidth = `${Math.round(boxWidth * scale)}px`;
+      svg.style.marginLeft = 'auto';
+      svg.style.marginRight = 'auto';
+    }
+  };
+
+  const run = () => { widen(); fitFigures(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+
 (() => {
   // スマホ幅のときだけ働く。PCでは1行も触らず、元のHTMLの見た目をそのまま残す。
   const narrow = matchMedia('(max-width: 46rem)');

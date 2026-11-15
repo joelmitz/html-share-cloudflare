@@ -71,11 +71,35 @@ export function checkHtml(source, { baseDir } = {}) {
   // Markdown habits leaking into HTML: the asterisks render as-is.
   if (/\*\*[^*\s][^*]*\*\*/.test(text)) ng.push('Markdown **bold** in page text; use <b>');
 
-  // Hero: inherited white loses to any later bare `p{color:...}`, so paint every descendant.
-  if (has(/class=["'][^"']*\bhero\b/) && !/\.hero\s*,\s*\.hero\s*\*\s*\{[^}]*color\s*:\s*#fff/i.test(css)) {
+  // Stylesheet v2: <html data-brief="<theme>"> marks a page started from new-page.mjs (assets/brief.css).
+  // Its hero has no band, so the v1 rules about the band are replaced by rules about the wash.
+  // Pages without data-brief are v1 pages and keep the v1 checks.
+  // Read only the first <html> tag: brief.css itself mentions `<html data-brief>` in a comment.
+  const htmlTag = source.match(/<html\b[^>]*>/i)?.[0] ?? '';
+  const theme = htmlTag.match(/\bdata-brief\s*=\s*["']([^"']*)["']/i)?.[1].trim().toLowerCase() ?? null;
+  const v2 = theme !== null;
+  const hero = rules.find((r) => /^\.hero$/.test(r.sel));
+  const whiteHero = /\.hero\s*,\s*\.hero\s*\*\s*\{[^}]*color\s*:\s*#fff/i.test(css);
+  if (v2) {
+    if (!/^[a-z0-9-]+$/.test(theme)) {
+      ng.push(`data-brief="${theme}" is not a theme name (lowercase letters, digits, hyphens)`);
+    } else if (!new RegExp(`:root\\[data-brief=["']${theme}["']\\]\\s*\\{`).test(css)) {
+      ng.push(`data-brief="${theme}" has no :root[data-brief="${theme}"] block; start the page with new-page.mjs`);
+    }
+    // White text from a v1 hero vanishes on the pale wash.
+    if (whiteHero) ng.push('v1 white hero rule `.hero, .hero *` on a v2 page; the v2 hero has no band, so the text disappears');
+    if (hero && /background/.test(hero.decl)) ng.push('v2 hero has a background; keep the heading on the wash instead of a band');
+    if (!rules.some((r) => r.sel === 'html' && /background\s*:\s*var\(--page-bg\)/.test(r.decl))) {
+      ng.push('v2 page has no `html { background: var(--page-bg) }`; overscroll shows a different color');
+    }
+    // The wash lives on a fixed layer because iOS ignores background-attachment: fixed.
+    if (!rules.some((r) => r.sel === 'body::before' && /position\s*:\s*fixed/.test(r.decl) && /background\s*:\s*var\(--wash\)/.test(r.decl))) {
+      ng.push('v2 page has no wash layer `body::before { position: fixed; background: var(--wash) }`');
+    }
+  } else if (has(/class=["'][^"']*\bhero\b/) && !whiteHero) {
+    // Hero: inherited white loses to any later bare `p{color:...}`, so paint every descendant.
     ng.push('hero text is not forced white with `.hero, .hero * { color: #fff }`');
   }
-  const hero = rules.find((r) => /^\.hero$/.test(r.sel));
   const heroPad = hero?.decl.match(/padding(?:-top)?\s*:\s*([^;]+)/)?.[1] ?? '';
   if (hero && heroPad) {
     const px = Number(heroPad.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 0);
@@ -88,7 +112,7 @@ export function checkHtml(source, { baseDir } = {}) {
   if (has(/<table\b/i) && has(/<th\b/i) && !has(/<thead\b/i)) ng.push('<table> uses <th> without an explicit <thead>');
   if (rules.some((r) => /(^|[\s,>])th\b/.test(r.sel) && /gradient|--[\w-]*grad\b/.test(r.decl))) ng.push('gradient on th restarts per cell; put it on thead');
   if (rules.some((r) => /(^|[\s,>])table\b/.test(r.sel) && /min-width\s*:\s*[1-9]/.test(r.decl))) ng.push('table has min-width; it forces horizontal overflow on phones');
-  if (has(/class=["'][^"']*\bcard\b/) && has(/<table\b/i) && !/\.card\s+thead\s*\{[^}]*background-image\s*:\s*none/i.test(css)) {
+  if (!v2 && has(/class=["'][^"']*\bcard\b/) && has(/<table\b/i) && !/\.card\s+thead\s*\{[^}]*background-image\s*:\s*none/i.test(css)) {
     ng.push('tables inside cards need `.card thead { background-image: none }` so bands do not nest');
   }
 
@@ -148,10 +172,18 @@ export function checkHtml(source, { baseDir } = {}) {
     for (const src of missingImages(source, baseDir)) ng.push(`image not found: ${src}`);
   }
 
+  // Slide-template figures put the main actor on a deep fill. A v2 figure of three or more shapes with no deep fill reads flat.
+  if (/<html\b[^>]*\bdata-brief\s*=/i.test(source)) {
+    const deep = /class=["'][^"']*\b(s-deep|s-ink|s-4)\b|fill=["'](?:url\(#|var\(--(?:blue-deep|blue|blue-mid|blue-bright|accent|fig-deep|fig-ink|fig-4)\)|#(?:0369a1|0284c7|0891b2|06b6d4|1d6fd8))/i;
+    const flat = (body.replace(/<svg\b[^>]*class=["'][^"']*\bbrief-defs\b[\s\S]*?<\/svg>/gi, '').match(/<svg\b[\s\S]*?<\/svg>/gi) ?? [])
+      .filter((svg) => (svg.match(/<(rect|path|polygon|circle)\b/gi) ?? []).length >= 3 && !deep.test(svg)).length;
+    if (flat) warn.push(`${flat} figure(s) have no deep fill; put the main box on .s-deep or .s-ink, steps on .s-1 to .s-4, supporting boxes on .s-tile, and drop the outlines`);
+  }
+
   // A page made only of text and tables is hard to take in, so no figure is a defect.
   // Pages that truly need none (a reproduced message, for example) opt out explicitly.
   const optOut = /<meta\s+name=["']brief-figures["']\s+content=["']none["']/i.test(source);
-  if (!optOut && !has(/<svg\b/i) && !has(/<img\b/i)) ng.push('no figure on the page; draw the comparisons, flows, breakdowns, or structure (pages that need none: <meta name="brief-figures" content="none">)');
+  if (!optOut && !/<svg\b/i.test(body.replace(/<svg\b[^>]*class=["'][^"']*\bbrief-defs\b[\s\S]*?<\/svg>/gi, '')) && !has(/<img\b/i)) ng.push('no figure on the page; draw the comparisons, flows, breakdowns, or structure (pages that need none: <meta name="brief-figures" content="none">)');
 
   // Review items, not defects.
   // A handful of figures with the rest in text cards still reads as text-heavy, so name the sections without one.
@@ -176,6 +208,38 @@ export function checkHtml(source, { baseDir } = {}) {
     .filter((m) => (m[1].match(/<p\b/gi) ?? []).length >= 2)
     .map((m) => sectionAt(body, m.index));
   if (heavy.length) warn.push(`two or more paragraphs follow a figure (${heavy.join(', ')}); keep one paragraph of two or three sentences per figure`);
+  // A heading or card title with a parenthetical tacked on is hard to scan; weekday marks such as （金） are fine.
+  const parenHeads = [...body.matchAll(/<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1>/gi)]
+    .map((m) => m[2].replace(/<[^>]+>/g, '').replace(/[（(][月火水木金土日祝・]+[）)]/g, '').trim())
+    .filter((text) => /[（(]/.test(text));
+  // A Japanese line in question form (ending in か, ですか, ますか) without a question mark reads as AI-written.
+  // Words that merely end in か (ほか, わずか, いくつか) are excluded.
+  const noQ = [...new Set(body.replace(/<(style|script|svg)[\s\S]*?<\/\1>/gi, '').split(/<[^>]+>/).map((t) => t.trim())
+    .filter((t) => /[\u3040-\u30ff\u4e00-\u9fff]/.test(t) && /か$/.test(t)
+      && !/(?:ほ|わず|いくつ|確|静|何|どこ|誰|いつ|なに|どれ|しか|豊|細|鮮|速|愚|穏|僅|浅)か$/.test(t)))];
+  if (noQ.length) warn.push(`${noQ.length} Japanese line(s) in question form without a question mark ("${noQ[0].slice(-20)}"); add ？ or rewrite as a statement`);
+  if (parenHeads.length) warn.push(`${parenHeads.length} heading(s) carry a parenthetical ("${parenHeads[0].slice(0, 30)}"); keep the title to one short phrase and move the detail into the text`);
+  // Japanese becomes hard to read as soon as two sentences run together in one block, so in Japanese text
+  // any two sentences joined without a break are flagged (paragraphs, list items, table cells).
+  // Full stops inside brackets do not end a sentence. English keeps the looser paragraph limit.
+  const sentenceEnds = (s) => {
+    let depth = 0, ends = 0;
+    [...s].forEach((ch, i) => {
+      if ('「（(『【'.includes(ch)) depth++;
+      else if ('」）)』】'.includes(ch)) depth = Math.max(0, depth - 1);
+      else if (ch === '。' && depth === 0 && s.slice(i + 1).trim()) ends++;
+    });
+    return ends;
+  };
+  const unbroken = [...body.replace(/<svg[\s\S]*?<\/svg>/gi, (m) => ' '.repeat(m.length))
+    .matchAll(/<(p|li|td|dd)\b[^>]*>((?:(?!<\/?(?:p|li|td|dd|ul|ol|div)\b)[\s\S])*)/gi)]
+    .flatMap((m) => m[2].replace(/<br\s*\/?>|<span class="sent">/gi, '\n').replace(/<[^>]+>/g, '').split('\n')
+      .map((text) => ({ index: m.index, text: text.trim() })))
+    .filter(({ text }) => {
+      if (/[\u3040-\u30ff\u4e00-\u9fff]/.test(text)) return text.length >= 60 && sentenceEnds(text) >= 1;
+      return text.length >= 600 && (text.match(/[.!?](?=\s|$)/g) ?? []).length >= 5;
+    });
+  if (unbroken.length) warn.push(`${unbroken.length} block(s) run sentences together without a break (first one in "${sectionAt(body, unbroken[0].index)}"); in Japanese, break the line after each sentence or split the paragraph or item`);
   const tables = (source.match(/<table\b/gi) ?? []).length;
   if (tables > 5) warn.push(`${tables} tables; more than five usually means the structure, not the content, is heavy`);
   // Busy sections: a long table or list usually means rows were appended after each round of feedback.
@@ -183,8 +247,11 @@ export function checkHtml(source, { baseDir } = {}) {
     const rows = (m[0].replace(/<thead\b[\s\S]*?<\/thead>/gi, '').match(/<tr\b/gi) ?? []).length;
     if (rows >= 10) warn.push(`"${sectionAt(body, m.index)}" has a ${rows}-row table; regroup it into category boxes of up to three items, or a figure`);
   }
-  for (const list of listSizes(body)) {
-    if (list.items >= 8) warn.push(`"${sectionAt(body, list.index)}" has a list of ${list.items} items; split it into category boxes, or draw a sequence as a figure`);
+  // The table of contents is a list of sections, not a list to read, so it is left out (blanked to keep the offsets).
+  const noToc = body.replace(/<nav\b[\s\S]*?<\/nav>|<(ol|ul)\b[^>]*class="[^"]*\btoc\b[\s\S]*?<\/\1>/gi, (m) => ' '.repeat(m.length));
+  for (const list of listSizes(noToc)) {
+    // Keep each list to two or three items: from four on, readers mostly stop reading it.
+    if (list.items >= 4) warn.push(`"${sectionAt(body, list.index)}" has a list of ${list.items} items; cut or merge it to two or three, split it into category boxes, or draw a sequence as a figure`);
   }
   // List items that open with a bold label and a colon read as a filled-in template.
   const labelled = body.match(/<li\b[^>]*>\s*<(b|strong)\b[^>]*>[^<]{1,30}[：:]\s*<\/\1>/gi) ?? [];

@@ -409,3 +409,68 @@ test('shelf preferences survive an older client PUT in real D1', async () => {
   expect(preferences.shelfAdded).toEqual(['theme']);
   expect(preferences.starredSources).toEqual(['page']);
 });
+
+test('shelf preferences survive an older client PUT in real D1', async () => {
+  const headers = await ownerHeaders();
+  const save = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, {
+    method: 'PUT', headers,
+    body: JSON.stringify({ shelfDone: ['plan'], shelfAdded: ['theme'] }),
+  });
+  expect(save.status).toBe(200);
+
+  const older = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, {
+    method: 'PUT', headers,
+    body: JSON.stringify({ starredSources: ['page'] }),
+  });
+  expect(older.status).toBe(200);
+
+  const loaded = await SELF.fetch(`${CONSOLE}/api/owner/preferences`, { headers });
+  expect(loaded.status).toBe(200);
+  const preferences = await loaded.json() as any;
+  expect(preferences.shelfDone).toEqual(['plan']);
+  expect(preferences.shelfAdded).toEqual(['theme']);
+  expect(preferences.starredSources).toEqual(['page']);
+});
+
+test('private image upload is accepted only for owner and fetched only by a paired device', async () => {
+  const denied = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, { method:'POST', body: JSON.stringify({count:1}) });
+  expect(denied.status).toBe(401);
+  const pairing = await SELF.fetch(`${CONSOLE}/api/owner/pairings`, { method:'POST', headers:await ownerHeaders() });
+  const {code} = await pairing.json() as any;
+  const claim = await SELF.fetch(`${CONSOLE}/api/pairings/claim`, { method:'POST', body:JSON.stringify({code,deviceName:'image test'}) });
+  const {deviceToken} = await claim.json() as any;
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, { method:'POST', headers:await ownerHeaders(), body:JSON.stringify({count:1}) });
+  expect(create.status).toBe(201); const {batchId,uploads} = await create.json() as any;
+  const put = await SELF.fetch(`${CONSOLE}${uploads[0].url}`, { method:'POST', headers:await ownerHeaders(), body:new Uint8Array([255,216,255,0]) });
+  expect(put.status).toBe(200);
+  const commit = await SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, { method:'POST', headers:await ownerHeaders(), body:'{}' });
+  expect(commit.status).toBe(200);
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads`)).status).toBe(401);
+  const list = await SELF.fetch(`${CONSOLE}/api/device/uploads`, { headers:{'x-review-device-token':deviceToken} });
+  const {items} = await list.json() as any; expect(items.some((x:any)=>x.batchId===batchId)).toBe(true);
+  const image = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`, {headers:{'x-review-device-token':deviceToken}});
+  expect(image.status).toBe(200); expect([...new Uint8Array(await image.arrayBuffer())]).toEqual([255,216,255,0]);
+  const done = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/done`, {method:'POST',headers:{'x-review-device-token':deviceToken}});
+  expect(done.status).toBe(200);
+});
+
+test('attached images are visible only to the device that claimed the request', async () => {
+  async function paired(): Promise<string> {
+    const pairing = await SELF.fetch(`${CONSOLE}/api/owner/pairings`, {method:'POST',headers:await ownerHeaders()});
+    const {code} = await pairing.json() as any;
+    const claim = await SELF.fetch(`${CONSOLE}/api/pairings/claim`, {method:'POST',body:JSON.stringify({code,deviceName:'image claimant'})});
+    return ((await claim.json()) as any).deviceToken;
+  }
+  const first = await paired(); const second = await paired();
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`,{method:'POST',headers:await ownerHeaders(),body:JSON.stringify({count:1,attached:true})});
+  const {batchId,uploads} = await create.json() as any;
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`,{method:'POST',headers:await ownerHeaders(),body:new Uint8Array([255,216,255,0])})).status).toBe(200);
+  expect((await SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`,{method:'POST',headers:await ownerHeaders(),body:'{}'})).status).toBe(200);
+  const send = await SELF.fetch(`${CONSOLE}/api/owner/reviews`,{method:'POST',headers:await ownerHeaders(),body:JSON.stringify({question:'image request',attachmentBatch:batchId})});
+  expect(send.status).toBe(201); const {item} = await send.json() as any;
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`,{headers:{'x-review-device-token':second}})).status).toBe(404);
+  const claim = await SELF.fetch(`${CONSOLE}/api/device/reviews/${item.id}/claim`,{method:'POST',headers:{'x-review-device-token':first},body:'{}'});
+  expect(claim.status).toBe(200);
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`,{headers:{'x-review-device-token':second}})).status).toBe(404);
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`,{headers:{'x-review-device-token':first}})).status).toBe(200);
+});

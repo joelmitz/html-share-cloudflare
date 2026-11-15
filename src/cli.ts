@@ -8,12 +8,15 @@ import {
   completeReviews,
   listInbox,
   pair,
+  pullInboxImages,
   pullReviews,
   pushReviews,
   stopWatching,
   watchReviews,
   type ReviewCard,
 } from './review-client.js';
+import { filesForBatch, imagesDir, recentBatches } from './inbox-images.js';
+import { newPage, pageTheme } from './new-page.js';
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -38,6 +41,7 @@ Usage:
   html-share publish [--config file]
   html-share share <slug> [--days 7]
   html-share page add <path> [--title title] [--public]
+  html-share new-page <out.html> --title title [--theme light] [--force]
   html-share page revive <slug> [--days 14] [--no-publish]
   html-share keys init [--overwrite]
   html-share keys store [--overwrite]
@@ -46,6 +50,7 @@ Usage:
   html-share review pull [--session <id>]
   html-share review inbox
   html-share review claim <id...>
+  html-share review images [--recent]
   html-share review complete <id...>
   html-share review watch --session <id> [--timeout-minutes 240]
   html-share review stop --session <id>`);
@@ -56,6 +61,7 @@ async function main(): Promise<void> {
   const command = process.argv[2];
   if (!command || flag('--help') || flag('-h')) usage();
 
+  // page revive も、設定の検証を通す前に処理する（保管庫から戻すための入口）。
   if (command === 'page' && process.argv[3] === 'revive') {
     const query = process.argv[4];
     if (!query) usage();
@@ -71,6 +77,22 @@ async function main(): Promise<void> {
   // が要求するcontent.pagesの非空制約を必要としない。新規セットアップ直後
   // （content.pagesがまだ空）で最初の1件を追加するための唯一の手段でもあるため、
   // 他コマンドより先に、loadConfig()を呼ばずに処理する。
+  // 新しいページの雛形（既定スタイルシート v2）。設定ファイルが無くても書き出せる
+  if (command === 'new-page') {
+    const out = process.argv[3];
+    const title = option('--title');
+    if (!out || out.startsWith('--') || !title) usage();
+    let config;
+    try {
+      config = loadConfig(option('--config'));
+    } catch {
+      config = undefined;
+    }
+    const theme = await pageTheme(option('--theme'), config);
+    const file = await newPage(out, title, theme, flag('--force'));
+    console.log(JSON.stringify({ ok: true, path: file, theme, next: 'Replace the sample body, then run skills/create-html/scripts/check-html.mjs' }));
+    return;
+  }
   if (command === 'page') {
     const action = process.argv[3];
     const pagePath = process.argv[4];
@@ -142,10 +164,12 @@ async function main(): Promise<void> {
       return;
     }
     if (action === 'inbox') {
-      const requests = await listInbox(config);
-      // Keep requests pending until their independent destination is confirmed. Claim each waiting
-      // request first; requests already `in_progress` were claimed by this computer (e.g. before a
-      // restart) and must be resumed, not claimed again.
+      const listed = await listInbox(config);
+      const resumed = listed.filter((item) => item.status === 'in_progress' && item.attachmentBatch).map((item) => item.attachmentBatch!);
+      let imageError: string | undefined;
+      if (resumed.length) { try { await pullInboxImages(config, resumed); } catch (error) { imageError = error instanceof Error ? error.message : String(error); } }
+      const requests = listed.map((item) => item.attachmentBatch ? { ...item, images: filesForBatch(item.attachmentBatch) } : item);
+      // Keep requests pending until their independent destination is confirmed.
       const next = requests.length
         ? 'Oldest first. Each request has a `status`. Claim each "waiting" one before dispatching it: `html-share review claim <id>`.'
           + ' A 409 means another computer already claimed it, so skip it. "in_progress" requests are already yours (likely claimed before a restart): do not claim again, resume them.'
@@ -154,14 +178,34 @@ async function main(): Promise<void> {
           + ' Record and verify the destination before `html-share review complete <id>`.'
           + ' Keep failed, ambiguous, or waiting requests open. Reuse existing dispatch receipts instead of relaunching.'
           + ' `target` is a nickname hint, not a filesystem path.'
+          + ' Pass the absolute paths in `images` to the destination with the request text so it can read them.'
         : undefined;
-      console.log(JSON.stringify({ ok: true, requests, ...(next ? { next } : {}) }, null, 2));
+      console.log(JSON.stringify({ ok: true, requests, ...(imageError ? { imageError } : {}), ...(next ? { next } : {}) }, null, 2));
+      return;
+    }
+    if (action === 'images') {
+      const pulled = await pullInboxImages(config);
+      const recent = flag('--recent') ? recentBatches(5) : undefined;
+      const next = pulled.length
+        ? 'Open the files in `pulled` to read them. A batch with `taskId` belongs to that inbox request; handle them together.'
+        : recent
+          ? 'No new images. Read the latest batch in `recent`; another pickup may have downloaded it already.'
+          : 'No new images. Run with --recent to list batches that were already downloaded.';
+      console.log(JSON.stringify({ ok: true, dir: imagesDir(), pulled, ...(recent ? { recent } : {}), next }, null, 2));
       return;
     }
     if (action === 'claim') {
       const ids = process.argv.slice(4).filter((value) => !value.startsWith('--'));
       if (!ids.length) usage();
       const results = await claimReviews(config, ids);
+      const batches = results.filter((r) => r.ok && r.item?.attachmentBatch).map((r) => r.item!.attachmentBatch!);
+      if (batches.length) {
+        try { await pullInboxImages(config, batches); } catch (error) {
+          console.error(`Image download failed; claimed requests remain open: ${error instanceof Error ? error.message : String(error)}`);
+          process.exitCode = 1;
+        }
+      }
+      for (const result of results) if (result.item?.attachmentBatch) result.item.images = filesForBatch(result.item.attachmentBatch);
       console.log(JSON.stringify({ ok: true, results }, null, 2));
       return;
     }

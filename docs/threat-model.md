@@ -20,6 +20,10 @@ AIが生成したHTMLや外部から受け取ったHTMLには、意図しないJ
 
 なお、オーナー本人用のプレビューリンク（`GET /api/owner/pages`が返す`href`。visibility='public'なページに限る）も、実体は同じ署名URL方式（`OWNER_LINK_DAYS`日間の有効期限、CIDR制限なし）です。console（Access限定）から発行されるからといって、生成後のURL自体がAccess保護下にあるわけではありません。
 
+### スマホから送った画像の残留
+
+スクリーンショットには業務情報が写り得ます。一時置き場のバケットは非公開で、配信（CloudFront）から読めません。出し入れは10分で失効する署名付きURLだけで行い、アップロード許可証は形式（`image/jpeg`）と大きさ（1枚15MB）を条件に含めます。PCが取り込んだらその場で消し、取り込み忘れも7日で消えます（[アーキテクチャ](architecture.md#スマホから画像を渡す)）。
+
 ### 秘密鍵の漏えい
 
 秘密鍵はGit管理外とし、ローカルと console Worker の secret にだけ置きます。閲覧面（content Worker）へは公開鍵しか配布しないため、閲覧面が侵害されても署名は偽造できません。漏えい時は `html-share keys init --overwrite` と `html-share keys store --overwrite` で鍵ペアをローテーションします。

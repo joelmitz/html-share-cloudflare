@@ -87,6 +87,12 @@ export interface HtmlShareConfig {
      * 同じ名前のファイルだけを上書きする。複数のサイトをアイコンの色で見分けたいときに使う
      */
     iconsDir?: string;
+    /**
+     * 管理面（一覧・インボックス）のテーマ。省略すると light。
+     * classic は元の濃い青の上バー、.css で終わる値は設定ファイルからの相対パスにある自前のテーマ。
+     * 詳しくは docs/site-theme.md
+     */
+    siteTheme?: string;
     /** 進行中フィルター。省略すると進行中フィルターを出さない */
     shelf?: ShelfItemConfig[];
     /**
@@ -209,6 +215,14 @@ function shelfItems(value: unknown): ShelfItemConfig[] {
   });
 }
 
+/** テーマ名は英小文字・数字・ハイフンだけ。自前のテーマは .css のパスで書く */
+function siteThemeConfig(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const result = text(value, 'content.siteTheme');
+  if (result.endsWith('.css') || /^[a-z0-9-]+$/.test(result)) return result;
+  throw new Error('content.siteTheme must be a theme name (light, classic) or a path to a .css file');
+}
+
 function cidr(value: unknown, name: string): string {
   const result = text(value, name);
   if (!/^(?:\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(result)) throw new Error(`${name} must be an IPv4 CIDR`);
@@ -312,6 +326,7 @@ export function loadConfig(file?: string): HtmlShareConfig {
       iconsDir: content.iconsDir === undefined || content.iconsDir === null
         ? undefined
         : text(content.iconsDir, 'content.iconsDir'),
+      siteTheme: siteThemeConfig(content.siteTheme),
       shelf: shelfItems(content.shelf),
       streamDues: streamDuesConfig(content.streamDues),
     },
@@ -354,12 +369,13 @@ export function setPageKeep(file: string | undefined, pagePath: string, keep: st
   if (!isSeq(pages)) throw new Error('content.pages must be an array');
   const index = pages.items.findIndex((item) => {
     const value = isMap(item) ? item.get('path') : (item as { value?: unknown })?.value;
-    return value === pagePath;
+    // loadConfig は path を trim して読むので、書き換え側も同じ正規化で照合する
+    return typeof value === 'string' && value.trim() === pagePath.trim();
   });
   if (index < 0) throw new Error(`content.pages has no entry for ${pagePath}`);
   if (!isMap(pages.items[index])) {
     // 文字列だけで書いたページは、path を持つ形へ書き直してから keep を足す
-    pages.items[index] = document.createNode({ path: pagePath });
+    pages.items[index] = document.createNode({ path: pagePath.trim() });
   }
   document.setIn(['content', 'pages', index, 'keep'], keep);
   writeFileSync(configFile, document.toString({ lineWidth: 120 }));

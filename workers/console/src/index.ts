@@ -1,4 +1,5 @@
 import { verifyAccessJwt } from '../../shared/access.js';
+import { uploadApi } from './uploads.js';
 import { cleanReadMarks } from './read-marks.js';
 
 export interface Env {
@@ -12,6 +13,7 @@ export interface Env {
   // 実オブジェクトの配信はinternal Worker（別デプロイ）が行い、この
   // Workerからはlock/commit検証・世代GC・purgeでのみ触る（CONTENTと同じ扱い）
   INTERNAL: R2Bucket;
+  INBOX_IMAGES: R2Bucket;
   SIGNING_PRIVATE_KEY: string;
   OWNER_EMAIL: string;
   CONSOLE_ORIGIN: string;
@@ -245,6 +247,7 @@ interface TaskRow {
   updated_at: string;
   completed_at: string | null;
   device_name: string | null; // devicesとのLEFT JOINで得る。'OWNER'等の非ペアリング済みIDはnullのまま
+  attachment_batch: string | null;
 }
 
 // devicesとのLEFT JOIN込みのSELECT。in_progress表示（作業中バッジ+デバイス名）が
@@ -266,6 +269,7 @@ function publicTask(row: TaskRow): Record<string, unknown> {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.target === null ? {} : { target: row.target }),
+    ...(row.attachment_batch ? { attachmentBatch: row.attachment_batch } : {}),
     ...(row.approved === null ? {} : { approved: row.approved === 1 }),
     ...(row.response_text === null ? {} : { responseText: row.response_text }),
     ...(row.completed_at === null ? {} : { completedAt: row.completed_at }),
@@ -680,6 +684,10 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
     if (!await requireOwner(request, env)) return json(env, 401, { error: 'Owner authentication is required' });
     if (!validOrigin(request, env) && verb !== 'GET') return json(env, 403, { error: 'Invalid origin' });
 
+    if (path.startsWith('/api/owner/uploads')) {
+      const response = await uploadApi(request, env, 'owner', path, now);
+      if (response) return response;
+    }
     if (verb === 'POST' && path === '/api/owner/pairings') {
       const code = pairingCode();
       await env.DB.prepare('INSERT INTO pairings (code_hash, created_at, expires_at) VALUES (?1, ?2, ?3)')
@@ -698,15 +706,21 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
       const question = clean(body.question, 'question', 2000, true);
       const id = crypto.randomUUID();
       const iso = new Date().toISOString();
+      const attachment = body.attachmentBatch ? String(body.attachmentBatch) : null;
+      if (attachment) {
+        const batch = await env.DB.prepare("SELECT id FROM upload_batches WHERE id=?1 AND status='ready' AND expires_at>?2").bind(attachment, now).first();
+        if (!batch) return json(env,400,{ error:'Attachment is not ready' });
+      }
       // target はプロジェクトの呼び名のヒント。取り込む側がパスへ解決する。
       await env.DB.prepare(
-        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at)
-         VALUES (?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8)`,
+        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch)
+         VALUES (?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9)`,
       ).bind(
         id, OWNER_DEVICE_ID, INBOX_SESSION_ID,
         clean(body.title, 'title', 120) || titleFromBody(question),
-        question, clean(body.target, 'target', 60), iso, now + TASK_TTL_SECONDS,
+        question, clean(body.target, 'target', 60), iso, now + TASK_TTL_SECONDS, attachment,
       ).run();
+      if (attachment) await env.DB.prepare('UPDATE upload_batches SET task_id=?1 WHERE id=?2').bind(id, attachment).run();
       const row = await env.DB.prepare(`${TASK_SELECT} WHERE t.id = ?1`).bind(id).first<TaskRow>();
       return json(env, 201, { item: publicTask(row!) });
     }
@@ -852,6 +866,17 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
   if (path.startsWith('/api/device/')) {
     const current = await device(request, env);
     if (!current) return json(env, 401, { error: 'Device authentication is required' });
+    if (path === '/api/device/uploads' && verb === 'GET') {
+      const rows = await env.DB.prepare("SELECT b.* FROM upload_batches b WHERE b.status='ready' AND b.expires_at>?1 AND (b.is_attachment=0 OR EXISTS (SELECT 1 FROM tasks t WHERE t.id=b.task_id AND t.device_id=?2 AND t.status='in_progress')) ORDER BY b.created_at").bind(now,current.id).all<{id:string;keys_json:string;task_id:string|null;created_at:string}>();
+      return json(env,200,{items:(rows.results ?? []).map(row=>({batchId:row.id, createdAt:row.created_at, taskId:row.task_id, images:(JSON.parse(row.keys_json) as string[]).map((k,i)=>({name:k.split('/').pop(),url:`/device/uploads/${row.id}/${i}`}))}))});
+    }
+    if (path.startsWith('/api/device/uploads/')) {
+      const batchId = path.split('/')[4];
+      const permitted = await env.DB.prepare("SELECT b.id FROM upload_batches b WHERE b.id=?1 AND (b.is_attachment=0 OR EXISTS (SELECT 1 FROM tasks t WHERE t.id=b.task_id AND t.device_id=?2 AND t.status='in_progress'))").bind(batchId,current.id).first();
+      if (!permitted) return json(env,404,{error:'Upload not found'});
+      const response = await uploadApi(request, env, 'device', path, now);
+      if (response) return response;
+    }
     if (verb === 'POST' && path === '/api/device/reviews') {
       const body = await parseBody(request);
       const id = crypto.randomUUID();

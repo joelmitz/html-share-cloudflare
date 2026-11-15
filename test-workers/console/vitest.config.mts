@@ -31,7 +31,7 @@ export default defineConfig(async () => {
           compatibilityDate: '2026-08-01',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
-          r2Buckets: ['CONTENT', 'INTERNAL'],
+          r2Buckets: ['CONTENT', 'INTERNAL', 'INBOX_IMAGES'],
           // env.ASSETS（Workers Static Assets、設計§5）のスタブ。ディレクトリ要求の
           // 末尾スラッシュ付与・index.html解決はASSETS自体（プラットフォーム機能）の
           // 責務であり本番実測で確認する（移行手順§5.1）。ここでの関数バインディングは
