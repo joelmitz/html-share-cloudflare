@@ -171,9 +171,9 @@ test('folds overflowing tables on the viewing origin without network access', ()
   assert.doesNotMatch(tables, /XMLHttpRequest/);
   // target を受け付けるのはオーナー（インボックス）投稿だけで、端末投稿は受け付けない
   assert.match(handler, /clean\(body\.target, 'target', 60\)/);
-  const inserts = handler.split('INSERT INTO tasks');
-  assert.equal(inserts.length, 3);
-  assert.equal(inserts.slice(1).filter((part) => part.slice(0, 400).includes('target')).length, 1);
+  const deviceSection = handler.slice(handler.indexOf("if (path.startsWith('/api/device/'))"));
+  const deviceInsert = deviceSection.slice(deviceSection.indexOf('INSERT INTO tasks'), deviceSection.indexOf('INSERT INTO tasks') + 400);
+  assert.doesNotMatch(deviceInsert, /target/);
 });
 
 test('widens the reading column before the first paint', () => {

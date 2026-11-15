@@ -648,6 +648,7 @@ async function purgeExpired(env: Env, now: number): Promise<void> {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM tasks WHERE expires_at <= ?1').bind(now),
     env.DB.prepare('DELETE FROM pairings WHERE expires_at <= ?1').bind(now),
+    env.DB.prepare('DELETE FROM upload_batches WHERE expires_at <= ?1').bind(now),
   ]);
 }
 
@@ -707,20 +708,21 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
       const id = crypto.randomUUID();
       const iso = new Date().toISOString();
       const attachment = body.attachmentBatch ? String(body.attachmentBatch) : null;
-      if (attachment) {
-        const batch = await env.DB.prepare("SELECT id FROM upload_batches WHERE id=?1 AND status='ready' AND expires_at>?2").bind(attachment, now).first();
-        if (!batch) return json(env,400,{ error:'Attachment is not ready' });
-      }
-      // target はプロジェクトの呼び名のヒント。取り込む側がパスへ解決する。
-      await env.DB.prepare(
-        `INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch)
-         VALUES (?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9)`,
-      ).bind(
-        id, OWNER_DEVICE_ID, INBOX_SESSION_ID,
+      const values = [id, OWNER_DEVICE_ID, INBOX_SESSION_ID,
         clean(body.title, 'title', 120) || titleFromBody(question),
-        question, clean(body.target, 'target', 60), iso, now + TASK_TTL_SECONDS, attachment,
-      ).run();
-      if (attachment) await env.DB.prepare('UPDATE upload_batches SET task_id=?1 WHERE id=?2').bind(id, attachment).run();
+        question, clean(body.target, 'target', 60), iso, now + TASK_TTL_SECONDS, attachment];
+      if (attachment) {
+        // 束のclaimと依頼作成を同じD1トランザクションに置き、再利用と競合を防ぐ。
+        const [linked, inserted] = await env.DB.batch([
+          env.DB.prepare("UPDATE upload_batches SET task_id=?1 WHERE id=?2 AND status='ready' AND is_attachment=1 AND task_id IS NULL AND expires_at>?3").bind(id, attachment, now),
+          env.DB.prepare(`INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch)
+            SELECT ?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9 WHERE changes() = 1`).bind(...values),
+        ]);
+        if (!linked.meta.changes || !inserted.meta.changes) return json(env, 400, { error: 'Attachment is not ready or already used' });
+      } else {
+        await env.DB.prepare(`INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch)
+          VALUES (?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9)`).bind(...values).run();
+      }
       const row = await env.DB.prepare(`${TASK_SELECT} WHERE t.id = ?1`).bind(id).first<TaskRow>();
       return json(env, 201, { item: publicTask(row!) });
     }

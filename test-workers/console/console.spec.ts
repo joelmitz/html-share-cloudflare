@@ -473,4 +473,6 @@ test('attached images are visible only to the device that claimed the request', 
   expect(claim.status).toBe(200);
   expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`,{headers:{'x-review-device-token':second}})).status).toBe(404);
   expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`,{headers:{'x-review-device-token':first}})).status).toBe(200);
+  const reused = await SELF.fetch(`${CONSOLE}/api/owner/reviews`,{method:'POST',headers:await ownerHeaders(),body:JSON.stringify({question:'reused',attachmentBatch:batchId})});
+  expect(reused.status).toBe(400);
 });
