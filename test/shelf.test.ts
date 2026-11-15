@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { cleanShelfAdded, cleanShelfDone } from '../workers/console/src/index.ts';
+import { cardKind, cleanShelfAdded, cleanShelfDone } from '../workers/console/src/index.ts';
 import { buildShelf, chipWidth, liveDues, nextDue, resolveStreamChips, type BuiltPage } from '../src/bundle.js';
 
 function page(slug: string, stream: string, updatedAt: string, streamChip = stream): BuiltPage {
