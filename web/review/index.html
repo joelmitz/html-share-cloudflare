@@ -174,8 +174,9 @@ main {
   color: var(--ink); background: var(--soft); font: inherit; font-size: 16px;
 }
 .compose-target:focus { outline: none; border-color: var(--blue-bright); background: var(--white); }
-/* ⚠️ .target-open / .target-option には必ず .compose を前に付ける。下の `.compose button`
-   （送るボタン）は詳細度で勝つので、外すと濃い青の塗りに化ける */
+/* 送るボタンの見た目（青い塗り・影・押したときの縮み）は `.compose-actions button` に閉じ込める。
+   `.compose button` と広く書くと、▼と候補のボタンにも影と縮みが漏れ、候補が1行ずつ浮いたカードに
+   見え、▼は押した瞬間に位置がずれる */
 .compose .target-open {
   position: absolute; right: .3rem; top: calc(50% + .3rem); transform: translateY(-50%);
   width: 2rem; height: 2rem; min-height: 0; padding: 0;
@@ -183,6 +184,8 @@ main {
   border: 0; border-radius: .5rem; background: transparent; color: var(--mut);
   font: inherit; font-weight: 400; cursor: pointer;
 }
+/* display:flex は hidden 属性より強いので、履歴が無いときに消えるよう明示する */
+.compose .target-open[hidden] { display: none; }
 .compose .target-open:hover { background: var(--soft); color: var(--sub); }
 .compose .target-open svg {
   width: .8rem; height: .8rem;
@@ -212,9 +215,23 @@ main {
   border-radius: 999px; background: var(--blue-soft); color: var(--blue-deep);
   font-size: .72rem; font-weight: 700;
 }
+/* カードの種類。承認したら何が起きるかを、ボタンを押す前に見せる */
+.kind-badge {
+  flex: none; display: inline-block; margin: 0; padding: .18rem .62rem; white-space: nowrap;
+  border-radius: 999px; font-size: .72rem; font-weight: 700;
+  background: var(--blue-soft); color: var(--blue-deep);
+}
+.kind-badge.todo { background: #fff1d6; color: #7a4a00; }
 .compose-actions { display: flex; align-items: center; gap: .6rem; margin-top: .6rem; }
-.compose-hint { flex: 1; min-width: 0; color: var(--mut); font-size: .72rem; line-height: 1.5; }
-.compose button {
+/* 使い方の案内はカードの外、下に小さく置く。ボタンの間に挟むと、スマホ幅で3行に折れて詰まって見える */
+.compose-hint { margin: -.55rem .3rem 1.1rem; color: var(--mut); font-size: .72rem; line-height: 1.5; }
+#compose-send { margin-left: auto; }
+/* スマホ幅では画像と頼むを同じ高さのボタンで横に並べ、行を埋める */
+@media (max-width: 46rem) {
+  .compose-actions .attach-btn { flex: 1 1 0; justify-content: center; white-space: nowrap; }
+  .compose-actions #compose-send { flex: 1.4 1 0; justify-content: center; margin-left: 0; }
+}
+.compose-actions button {
   flex: none; min-height: 2.6rem; padding: .55rem 1.15rem;
   display: inline-flex; align-items: center; gap: .4rem;
   border: 0; border-radius: .75rem; color: var(--white); background: var(--blue);
@@ -222,13 +239,37 @@ main {
   font-weight: 700; letter-spacing: .02em; cursor: pointer;
   transition: filter .16s ease, transform .1s ease;
 }
-.compose button:hover { filter: brightness(1.08); }
-.compose button:active { transform: scale(.985); }
-.compose button svg {
+.compose-actions button:hover { filter: brightness(1.08); }
+.compose-actions button:active { transform: scale(.985); }
+.compose-actions button svg {
   width: .95rem; height: .95rem;
   fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
 }
-.compose button:disabled { opacity: .55; cursor: default; }
+.compose-actions button:disabled { opacity: .55; cursor: default; }
+/* 画像の添付。送るボタンと同じ並びに置き、塗らない控えめな見た目にする。
+   選んだ画像は本文の下へ小さく並べ、×で外せる */
+.compose-actions .attach-btn {
+  color: var(--blue); background: var(--white); box-shadow: none;
+  border: 1px solid var(--blue-line); padding: .55rem .8rem;
+}
+.compose-actions .attach-btn.has { color: var(--white); background: var(--blue-mid); border-color: var(--blue-mid); }
+.attach-input { display: none; }
+.attach-strip { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .6rem; }
+.attach-strip[hidden] { display: none; }
+.attach-thumb {
+  position: relative; width: 3.6rem; height: 3.6rem; overflow: hidden;
+  border: 1px solid var(--line); border-radius: .6rem; background: var(--soft);
+}
+.attach-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.attach-thumb button {
+  position: absolute; top: .15rem; right: .15rem; width: 1.35rem; height: 1.35rem; padding: 0;
+  border: 0; border-radius: 999px; background: rgba(21, 21, 26, .62); color: var(--white);
+  font-size: .8rem; line-height: 1; cursor: pointer;
+}
+.attach-badge {
+  flex: none; padding: .18rem .62rem; border-radius: 999px; white-space: nowrap;
+  background: var(--blue-soft); color: var(--blue-deep); font-size: .72rem; font-weight: 700;
+}
 /* 高さのばらつくカードを隙間なく詰めるための多段組み。ダッシュボード（.dbody）と同じ
    作り・同じ寸法にそろえてある。段数ではなく列幅で指定しているので、画面幅に
    そのまま追従して最大3段まで自動で増える。Grid だと行の高さが一番背の高いカードに
@@ -468,11 +509,16 @@ footer {
       </button>
       <ul class="target-list" id="target-list" hidden></ul>
     </div>
+    <div class="attach-strip" id="attach-strip" hidden></div>
     <div class="compose-actions">
-      <span class="compose-hint">PCで <strong>/inbox</strong> と打つと、Claudeがここから読み取ります。</span>
+      <input class="attach-input" id="attach-input" type="file" accept="image/*" multiple>
+      <button class="attach-btn" id="attach-btn" type="button" aria-label="画像を添付">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 16l-5-5-7.5 8"/></svg><span id="attach-label">画像</span>
+      </button>
       <button type="submit" id="compose-send">頼む<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
     </div>
   </form>
+  <p class="compose-hint" id="compose-hint">PCで <strong>/inbox</strong> と打つと、Claudeがここから読み取ります。</p>
   <div class="cards" id="request-cards"></div>
 
   <div class="section-head later"><span>Claudeからの確認</span><span class="count" id="active-count">0件</span></div>
@@ -598,24 +644,35 @@ footer {
     const card = document.createElement('article');
     card.className = `card ${task.status}${request ? ' request' : ''}`;
     card.dataset.id = task.id;
+    // run＝承認すると Claude が実行する、todo＝本人の作業でボタンは「済んだ」の合図
+    const kind = request ? '' : (task.kind || '');
+    if (kind) card.dataset.kind = kind;
+    const done = kind === 'todo' && task.approved === true;
+    const recommendationLabel = kind === 'run' ? '承認するとClaudeがやること'
+      : kind === 'todo' ? 'やること' : 'Claudeの推奨';
     const recommendation = task.recommendation
-      ? `<div class="recommendation"><span class="label">Claudeの推奨</span>${escapeHtml(task.recommendation)}</div>`
+      ? `<div class="recommendation"><span class="label">${recommendationLabel}</span>${linkify(task.recommendation)}</div>`
       : '';
+    const kindBadge = kind === 'run' ? '<span class="kind-badge run">承認で実行</span>'
+      : kind === 'todo' ? '<span class="kind-badge todo">あなたの番</span>' : '';
     const context = task.context ? `<p class="context">${linkify(task.context)}</p>` : '';
-    const response = task.responseText
+    // 「済んだ」は返事の文ではないので、返事の枠を出さない
+    const response = task.responseText && !done
       ? `<div class="reply">${escapeHtml(task.responseText)}</div>`
       : '';
     const heading = request ? '' : `<span class="title">${escapeHtml(task.title)}</span>`;
     const target = request && task.target
       ? `<span class="target-badge" title="${escapeHtml(task.target)}">${escapeHtml(task.target)}</span>`
       : '';
+    const attachBadge = request && task.attachmentCount
+      ? `<span class="attach-badge">画像${Number(task.attachmentCount)}枚</span>` : '';
     card.innerHTML = `
       <div class="meta">
-        ${heading}${target}
+        ${kindBadge}${heading}${target}${attachBadge}
         <span class="time">${relativeTime(task.updatedAt)}</span>
       </div>
       <div class="body">
-        <p class="question">${escapeHtml(task.question)}</p>
+        <p class="question">${linkify(task.question)}</p>
         ${context}${recommendation}${response}
       </div>
     `;
@@ -692,23 +749,26 @@ footer {
       const actions = document.createElement('div');
       actions.className = 'actions';
       const approve = document.createElement('button');
-      approve.className = 'approve'; approve.type = 'button'; approve.textContent = '承認';
+      approve.className = 'approve'; approve.type = 'button';
+      approve.textContent = kind === 'todo' ? '済んだ' : kind === 'run' ? '承認して任せる' : '承認';
       const input = document.createElement('input');
       input.type = 'text'; input.placeholder = 'コメントを入力'; input.autocomplete = 'off';
       input.setAttribute('aria-label', 'コメント');
       const send = document.createElement('button');
       send.className = 'send'; send.type = 'button'; send.textContent = '送る';
 
-      const respond = async (kind) => {
+      const respond = async (responseKind) => {
         if (busy) return;
         const text = input.value.trim();
-        if (kind === 'comment' && !text) { input.focus(); return; }
+        if (responseKind === 'comment' && !text) { input.focus(); return; }
         busy = true; approve.disabled = true; send.disabled = true; input.disabled = true;
         try {
           await api(`/owner/reviews/${encodeURIComponent(task.id)}/answer`, {
-            method: 'POST', body: JSON.stringify({ approved: kind === 'approve', responseText: text }),
+            method: 'POST', body: JSON.stringify({ approved: responseKind === 'approve', responseText: text }),
           });
-          toast(kind === 'approve' ? '承認しました' : 'コメントを送りました');
+          toast(responseKind !== 'approve' ? 'コメントを送りました'
+            : kind === 'todo' ? '済んだと記録しました'
+            : kind === 'run' ? '承認しました。Claudeが次に取り込むと実行します' : '承認しました');
           await load();
         } catch (error) {
           toast(error.message);
@@ -724,7 +784,8 @@ footer {
       card.append(actions);
     } else if (task.status === 'answered') {
       const waiting = document.createElement('div');
-      waiting.className = 'waiting-mac'; waiting.textContent = 'Macでの取り込み待ち';
+      waiting.className = 'waiting-mac';
+      waiting.textContent = done ? '済み（次の取り込みで片付きます）' : 'Macでの取り込み待ち';
       card.append(waiting);
     }
     return card;
@@ -744,6 +805,8 @@ footer {
       const body = card.querySelector('.body');
       const more = card.querySelector('.more');
       if (!body || !more) continue;
+      // 種類つきのカードは短く書く前提。畳むと「やること」とリンクがボタンの下に隠れるので畳まない
+      if (card.dataset.kind) { body.classList.remove('clamped'); more.hidden = true; continue; }
       const open = expanded.has(card.dataset.id);
       body.classList.remove('clamped');
       const tall = body.scrollHeight > limit + 24;
@@ -840,28 +903,143 @@ footer {
     $('target-open').setAttribute('aria-expanded', String(open));
   }
 
+  // ── 画像の添付 ──
+  // 選んだ画像は送る前にブラウザの中で JPEG へ描き直す。理由は3つ：
+  // ① iPhone の写真の標準形式（HEIC）は、PCのエージェントが読めないことが多い
+  // ② 長辺を縮めて送る量を減らす（スクリーンショットの文字が読める 2000px を上限にする）
+  // ③ 描き直すと位置情報などの撮影データが落ちる
+  const MAX_ATTACH = 20;
+  const MAX_EDGE = 2000;
+  let attachments = [];
+
+  function renderAttachments() {
+    const strip = $('attach-strip');
+    strip.hidden = attachments.length === 0;
+    strip.replaceChildren(...attachments.map((item, index) => {
+      const thumb = document.createElement('div');
+      thumb.className = 'attach-thumb';
+      const img = document.createElement('img');
+      img.src = item.preview;
+      img.alt = '';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', 'この画像を外す');
+      remove.addEventListener('click', () => {
+        URL.revokeObjectURL(item.preview);
+        attachments.splice(index, 1);
+        renderAttachments();
+      });
+      thumb.append(img, remove);
+      return thumb;
+    }));
+    $('attach-btn').classList.toggle('has', attachments.length > 0);
+    $('attach-label').textContent = attachments.length > 0 ? `${attachments.length}枚` : '画像';
+    $('compose-hint').innerHTML = attachments.length > 0
+      ? '本文が空なら画像だけをPCへ送ります。PCのClaudeに「スマホの画像を見て」と頼むと取り込みます。'
+      : 'PCで <strong>/inbox</strong> と打つと、Claudeがここから読み取ります。';
+  }
+
+  function pickAttachments(event) {
+    const files = [...(event.target.files ?? [])].filter((file) => file.type.startsWith('image/') || !file.type);
+    event.target.value = '';
+    const room = MAX_ATTACH - attachments.length;
+    if (files.length > room) toast(`画像は${MAX_ATTACH}枚までです`);
+    for (const file of files.slice(0, Math.max(room, 0))) {
+      attachments.push({ file, preview: URL.createObjectURL(file) });
+    }
+    renderAttachments();
+  }
+
+  async function decodeImage(file) {
+    if ('createImageBitmap' in window) {
+      try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { /* 下の経路へ */ }
+    }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  async function toJpeg(file) {
+    const image = await decodeImage(file);
+    const scale = Math.min(1, MAX_EDGE / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const ctx = canvas.getContext('2d');
+    // 透過PNGの透明部分が黒くならないよう白を敷く
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    image.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+    if (!blob) throw new Error('画像を変換できませんでした');
+    return blob;
+  }
+
+  /** 選んだ画像を一時置き場へ直接送り、束の ID と届いた枚数を返す */
+  async function uploadAttachments(progress) {
+    const { batchId, uploads } = await api('/owner/uploads', {
+      method: 'POST', body: JSON.stringify({ count: attachments.length }),
+    });
+    let sent = 0;
+    for (const [index, item] of attachments.entries()) {
+      progress(`画像を送信中 ${index + 1}/${attachments.length}`);
+      try {
+        const blob = await toJpeg(item.file);
+        const response = await fetch(uploads[index].url, { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob });
+        if (response.ok) sent += 1;
+      } catch { /* 届かなかった分は commit が数え直して外す */ }
+    }
+    if (sent === 0) throw new Error('画像を送れませんでした。電波の良い所でもう一度送ってください');
+    const result = await api(`/owner/uploads/${batchId}/commit`, { method: 'POST', body: '{}' });
+    return { batchId, count: result.count, missing: result.missing };
+  }
+
   async function submitRequest(event) {
     event.preventDefault();
     if (busy) return;
     const field = $('compose-text');
     const text = field.value.trim();
-    if (!text) { field.focus(); return; }
+    if (!text && attachments.length === 0) { field.focus(); return; }
     const targetField = $('compose-target');
     const target = targetField.value.trim();
     const send = $('compose-send');
-    busy = true; send.disabled = true; field.disabled = true;
+    const sendLabel = send.firstChild.textContent;
+    busy = true; send.disabled = true; field.disabled = true; $('attach-btn').disabled = true;
     try {
-      await api('/owner/reviews', { method: 'POST', body: JSON.stringify({ question: text, target }) });
+      let batch = null;
+      if (attachments.length > 0) {
+        batch = await uploadAttachments((message) => { send.firstChild.textContent = message; });
+      }
+      const missingNote = batch?.missing ? `（${batch.missing}枚は届きませんでした）` : '';
+      if (text) {
+        await api('/owner/reviews', {
+          method: 'POST',
+          body: JSON.stringify({ question: text, target, ...(batch ? { attachmentBatch: batch.batchId } : {}) }),
+        });
+        toast(`Claudeへの依頼を置きました${batch ? `（画像${batch.count}枚）` : ''}${target ? `（${target}）` : ''}${missingNote}`);
+      } else {
+        // 本文が無ければ依頼にはせず、画像だけをPCへ渡す
+        toast(`画像${batch.count}枚をPCへ送りました${missingNote}`);
+      }
       field.value = '';
       // プロジェクト名は毎回消す。連続で投げる依頼が同じ案件とは限らず、
       // 前の指定が残っていると気づかないまま別案件へ付いてしまう
       targetField.value = '';
-      toast(target ? `Claudeへの依頼を置きました（${target}）` : 'Claudeへの依頼を置きました');
+      for (const item of attachments) URL.revokeObjectURL(item.preview);
+      attachments = [];
+      renderAttachments();
       await load();
     } catch (error) {
       toast(error.message);
     } finally {
-      busy = false; send.disabled = false; field.disabled = false;
+      send.firstChild.textContent = sendLabel;
+      busy = false; send.disabled = false; field.disabled = false; $('attach-btn').disabled = false;
     }
   }
 
@@ -879,13 +1057,15 @@ footer {
   $('refresh').addEventListener('click', load);
   $('history-section').querySelector('details').addEventListener('toggle', measureClamps);
   $('compose').addEventListener('submit', submitRequest);
+  $('attach-btn').addEventListener('click', () => $('attach-input').click());
+  $('attach-input').addEventListener('change', pickAttachments);
   $('target-open').addEventListener('click', toggleTargetList);
   document.addEventListener('click', (event) => {
     if (!targetList.hidden && !event.target.closest('.compose-target-wrap')) closeTargetList();
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   setInterval(() => {
-    if (!document.hidden && !busy && !$('compose-text').value.trim()) load();
+    if (!document.hidden && !busy && !$('compose-text').value.trim() && attachments.length === 0) load();
   }, 60_000);
 
   const pairing = $('pairing');

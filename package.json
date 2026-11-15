@@ -27,6 +27,7 @@
     "dist/",
     "web/",
     "assets/og-card.jpg",
+    "themes/",
     "skills/",
     "workers/",
     ".codex-plugin/",

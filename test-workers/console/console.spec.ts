@@ -198,3 +198,25 @@ test('shelf preferences survive an older client PUT in real D1', async () => {
   expect(preferences.shelfAdded).toEqual(['theme']);
   expect(preferences.starredSources).toEqual(['page']);
 });
+
+test('private image upload is accepted only for owner and fetched only by a paired device', async () => {
+  const denied = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, { method:'POST', body: JSON.stringify({count:1}) });
+  expect(denied.status).toBe(401);
+  const pairing = await SELF.fetch(`${CONSOLE}/api/owner/pairings`, { method:'POST', headers:await ownerHeaders() });
+  const {code} = await pairing.json() as any;
+  const claim = await SELF.fetch(`${CONSOLE}/api/pairings/claim`, { method:'POST', body:JSON.stringify({code,deviceName:'image test'}) });
+  const {deviceToken} = await claim.json() as any;
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, { method:'POST', headers:await ownerHeaders(), body:JSON.stringify({count:1}) });
+  expect(create.status).toBe(201); const {batchId,uploads} = await create.json() as any;
+  const put = await SELF.fetch(`${CONSOLE}${uploads[0].url}`, { method:'POST', headers:await ownerHeaders(), body:new Uint8Array([255,216,255,0]) });
+  expect(put.status).toBe(200);
+  const commit = await SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, { method:'POST', headers:await ownerHeaders(), body:'{}' });
+  expect(commit.status).toBe(200);
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads`)).status).toBe(401);
+  const list = await SELF.fetch(`${CONSOLE}/api/device/uploads`, { headers:{'x-review-device-token':deviceToken} });
+  const {items} = await list.json() as any; expect(items.some((x:any)=>x.batchId===batchId)).toBe(true);
+  const image = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/0`, {headers:{'x-review-device-token':deviceToken}});
+  expect(image.status).toBe(200); expect([...new Uint8Array(await image.arrayBuffer())]).toEqual([255,216,255,0]);
+  const done = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/done`, {method:'POST',headers:{'x-review-device-token':deviceToken}});
+  expect(done.status).toBe(200);
+});

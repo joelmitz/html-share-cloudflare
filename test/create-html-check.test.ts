@@ -7,7 +7,9 @@ import test from 'node:test';
 import { checkHtml } from '../skills/create-html/scripts/check-html.mjs';
 
 const template = readFileSync(new URL('../skills/create-html/assets/brief-template.html', import.meta.url), 'utf8');
-const filled = template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_, key: string) => `サンプル ${key.toLowerCase()}`);
+// Prose placeholders get sentence-length text, so the filled template is a realistic page rather than a row of labels.
+const filled = template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_, key: string) =>
+  /LEAD|EXPLANATION|BODY/.test(key) ? `サンプル ${key.toLowerCase()} の説明文がここに入る。\n`.repeat(4) : `サンプル ${key.toLowerCase()}`);
 
 test('the filled template passes every check', () => {
   const { ng, warn } = checkHtml(filled);
@@ -45,10 +47,47 @@ for (const [name, breakIt, expected] of breakages) {
   });
 }
 
-test('warns when a page has no figure', () => {
-  const { ng, warn } = checkHtml(filled.replace(/<figure[\s\S]*?<\/figure>/, ''));
-  assert.deepEqual(ng, []);
-  assert.ok(warn.some((line: string) => line.includes('no figure')));
+test('fails when a page has no figure', () => {
+  const { ng } = checkHtml(filled.replace(/<figure[\s\S]*?<\/figure>/, ''));
+  assert.ok(ng.some((line: string) => line.includes('no figure')));
+});
+
+test('a page can opt out of the figure check explicitly', () => {
+  const noFigure = filled.replace(/<figure[\s\S]*?<\/figure>/, '').replace('<head>', '<head><meta name="brief-figures" content="none">');
+  assert.ok(!checkHtml(noFigure).ng.some((line: string) => line.includes('no figure')));
+});
+
+test('warns when half or more of the sections have no figure', () => {
+  const textSection = (n: number) => `<section id="t${n}"><h2>Text only ${n}</h2><p>Plain text.</p></section>`;
+  const html = filled.replace('<footer>', [1, 2, 3, 4, 5, 6].map(textSection).join('') + '<footer>');
+  assert.ok(checkHtml(html).warn.some((line: string) => line.includes('have no figure')));
+});
+
+test('warns when a section has a figure but almost no prose', () => {
+  const figureOnly = '<section id="f1"><h2>Figure only</h2><figure><svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg></figure></section>';
+  const html = filled.replace('<footer>', figureOnly + '<footer>');
+  assert.ok(checkHtml(html).warn.some((line: string) => line.includes('under 150 characters of prose')));
+});
+
+test('warns when two or more paragraphs follow one figure', () => {
+  const html = filled.replace(/(<p>サンプル figure_explanation[^<]*<\/p>)/, '$1\n<p>Another paragraph about the same figure.</p>');
+  assert.ok(checkHtml(html).warn.some((line: string) => line.includes('two or more paragraphs follow a figure')));
+});
+
+test('warns about a heading with a parenthetical but allows weekday marks', () => {
+  const add = (markup: string) => filled.replace('<div class="table-wrap">', `${markup}<div class="table-wrap">`);
+  assert.ok(checkHtml(add('<h3>Morning batch (two trays, 04:10)</h3>')).warn.some((line: string) => line.includes('carry a parenthetical')));
+  assert.ok(!checkHtml(add('<h3>11/13（金）の仕込み</h3>')).warn.some((line: string) => line.includes('carry a parenthetical')));
+});
+
+test('warns about a long paragraph with no break', () => {
+  const sentence = 'パン屋の朝は早く、四時には窯に火が入ります。';
+  const long = `<p>${sentence.repeat(10)}</p>`;
+  const html = filled.replace('<div class="table-wrap">', `${long}<div class="table-wrap">`);
+  assert.ok(checkHtml(html).warn.some((line: string) => line.includes('run sentences together without a break')));
+  const split = `<p>${sentence}</p>`.repeat(5);
+  const ok = filled.replace('<div class="table-wrap">', `${split}<div class="table-wrap">`);
+  assert.ok(!checkHtml(ok).warn.some((line: string) => line.includes('run sentences together without a break')));
 });
 
 const breads = ['Sourdough', 'Rye', 'Baguette', 'Brioche', 'Ciabatta', 'Focaccia', 'Bagel', 'Croissant', 'Pretzel', 'Challah'];
@@ -65,7 +104,7 @@ test('warns about a long list but counts nested items separately', () => {
   const long = `<ul>${breads.slice(0, 8).map((name) => `<li>${name}</li>`).join('')}</ul>`;
   assert.ok(checkHtml(insertInSection2(filled, long)).warn.some((line: string) => /list of 8 items/.test(line)));
   const nested = `<ul><li>Breads<ul>${breads.slice(0, 5).map((name) => `<li>${name}</li>`).join('')}</ul></li><li>Cakes</li><li>Drinks</li></ul>`;
-  assert.deepEqual(checkHtml(insertInSection2(filled, nested)).warn, []);
+  assert.ok(!checkHtml(insertInSection2(filled, nested)).warn.some((line: string) => /list of 8 items/.test(line)));
 });
 
 test('warns about list items that open with a bold label and a colon', () => {
@@ -89,4 +128,54 @@ test('reports relative images that do not exist next to the file', () => {
   const { ng } = checkHtml(html, { baseDir: dir });
   assert.deepEqual(ng, ['image not found: photos/shelf-09.png']);
   assert.deepEqual(checkHtml(html).ng, [], 'image paths are checked only when the file location is known');
+});
+
+// ── Stylesheet v2: pages started from new-page.mjs carry <html data-brief="..."> ──
+// @ts-expect-error plain ESM script without type declarations
+const { briefSkeleton, briefThemes } = await import('../skills/create-html/scripts/new-page.mjs');
+const starter: string = briefSkeleton({ title: 'パン屋の週次まとめ' });
+
+test('the v2 starter passes every check', () => {
+  assert.match(starter, /<html lang="ja" data-brief="light">/);
+  const { ng, warn } = checkHtml(starter);
+  assert.deepEqual(ng, []);
+  assert.deepEqual(warn, []);
+});
+
+test('the starter offers only themes defined in brief.css', () => {
+  assert.deepEqual(briefThemes(), ['light']);
+  assert.throws(() => briefSkeleton({ title: 'x', theme: 'neon' }), /unknown theme/);
+});
+
+const v2Breakages: Array<[string, (html: string) => string, RegExp]> = [
+  ['v1 white hero rule on a v2 page', (h) => h.replace('</style>', '.hero,.hero *{color:#fff}</style>'), /white hero rule/],
+  ['hero turned back into a band', (h) => h.replace('.hero{padding:', '.hero{background:var(--blue-grad);padding:'), /hero has a background/],
+  ['missing wash layer', (h) => h.replace('background:var(--wash)}', 'background:#fff}'), /wash layer/],
+  ['wash layer not fixed', (h) => h.replace('body::before{content:"";position:fixed;', 'body::before{content:"";position:absolute;'), /wash layer/],
+  ['page background not the theme color', (h) => h.replace('html{background:var(--page-bg);', 'html{background:#fff;'), /--page-bg/],
+  ['theme without a definition', (h) => h.replace('data-brief="light"', 'data-brief="neon"'), /no :root\[data-brief="neon"\]/],
+];
+
+for (const [name, breakIt, expected] of v2Breakages) {
+  test(`v2 detects: ${name}`, () => {
+    const { ng } = checkHtml(breakIt(starter));
+    assert.ok(ng.some((line: string) => expected.test(line)), `expected ${expected} in ${JSON.stringify(ng)}`);
+  });
+}
+
+test('v1 pages keep the v1 hero rule', () => {
+  // Without data-brief the white hero is still required, so a legacy page is checked as before.
+  const legacy = starter.replace(' data-brief="light"', '');
+  assert.ok(checkHtml(legacy).ng.some((line: string) => /forced white/.test(line)));
+});
+
+test('warns about a v2 figure with no deep fill, and the definitions block is not a figure', async () => {
+  const { briefSkeleton } = await import('../skills/create-html/scripts/new-page.mjs');
+  const page = (svg: string) => `<!doctype html><html lang="ja" data-brief="light"><head><title>t</title></head><body><section><h2>節</h2>${svg}</section></body></html>`;
+  const flatSvg = '<svg viewBox="0 0 10 10"><rect class="bx"/><rect/><rect/></svg>';
+  assert.ok(checkHtml(page(flatSvg)).warn.some((line: string) => /no deep fill/.test(line)));
+  assert.ok(!checkHtml(page(flatSvg.replace('class="bx"', 'class="s-deep"'))).warn.some((line: string) => /no deep fill/.test(line)));
+  const onlyDefs = page('<svg class="brief-defs"><defs></defs></svg><p>本文</p>');
+  assert.ok(checkHtml(onlyDefs).ng.some((line: string) => /no figure/.test(line)));
+  assert.ok(!checkHtml(briefSkeleton({ title: 't' })).warn.some((line: string) => /no deep fill/.test(line)));
 });

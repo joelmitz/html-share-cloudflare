@@ -12,7 +12,8 @@
     { "pattern": "html-share-console.example.com", "custom_domain": true }
   ],
   "r2_buckets": [
-    { "binding": "CONSOLE", "bucket_name": "html-share-console" }
+    { "binding": "CONSOLE", "bucket_name": "html-share-console" },
+    { "binding": "INBOX_IMAGES", "bucket_name": "html-share-inbox-images" }
   ],
   "d1_databases": [
     // database_id は `wrangler d1 create html-share-review` の出力で書き換える

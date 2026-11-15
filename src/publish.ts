@@ -1,9 +1,11 @@
 import {
   DeleteObjectsCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -14,6 +16,7 @@ import type { HtmlShareConfig } from './config.js';
 import { consoleUrl, contentUrl, resolveFromConfig, setPageKeep } from './config.js';
 import { REVIVE_DAYS } from './retention.js';
 import { signUrl } from './sign.js';
+import { loadSiteTheme, THEMED_SCREENS, themeShell } from './theme.js';
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -37,14 +40,46 @@ function files(root: string, current = root): string[] {
   });
 }
 
+/**
+ * 一覧画面が読む JSON を、一覧の台帳（manifest.json）から切り出す。
+ *
+ *   list.json    … トップを描くのに要る分だけ。保管庫は件数（archivedCount）だけを持つ
+ *   archive.json … 保管庫の行。画面で「保管庫」を開いたときにだけ取る
+ *
+ * 保管庫は長く使うほど増え続け、トップを開くたびに運ぶ理由が無いので分ける。
+ * manifest.json は publish の受け継ぎ（mergeRemotePages）が読む台帳として形を変えずに残す。
+ */
+export function consoleListViews(manifest: object): { list: string; archive: string } {
+  const { archived = [], ...rest } = manifest as { archived?: unknown[] };
+  return {
+    list: `${JSON.stringify({ ...rest, archivedCount: archived.length })}\n`,
+    // generatedAt を持たせない。保管庫が変わらなければファイルも変わらず、送り直しも起きない
+    archive: `${JSON.stringify({ archived })}\n`,
+  };
+}
+
+/** app/ に manifest.json と、画面用の list.json・archive.json をそろえて書く。台帳を書き換えたら必ずこれを通す */
+export function writeConsoleList(appDir: string, manifest: object): void {
+  mkdirSync(appDir, { recursive: true });
+  writeFileSync(path.join(appDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  const views = consoleListViews(manifest);
+  writeFileSync(path.join(appDir, 'list.json'), views.list);
+  writeFileSync(path.join(appDir, 'archive.json'), views.archive);
+}
+
 function copyConsole(buildRoot: string, manifest: object, config: HtmlShareConfig): void {
   const consoleRoot = path.join(buildRoot, 'console');
   mkdirSync(consoleRoot, { recursive: true });
+  // 一覧とインボックスには content.siteTheme のテーマを当てる（docs/site-theme.md）
+  const theme = loadSiteTheme(config);
   for (const relative of files(path.join(PACKAGE_ROOT, 'web'))) {
     const source = path.join(PACKAGE_ROOT, 'web', relative);
     const target = path.join(consoleRoot, relative);
     mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, readFileSync(source));
+    const screen = relative.split(path.sep).join('/');
+    writeFileSync(target, THEMED_SCREENS.includes(screen)
+      ? themeShell(readFileSync(source, 'utf8'), theme, `web/${screen}`)
+      : readFileSync(source));
   }
   // iconsDir の中身は、同じ名前の同梱アイコンを上書きする（favicon.ico は直下、それ以外は icons/ へ）
   if (config.content.iconsDir) {
@@ -55,8 +90,7 @@ function copyConsole(buildRoot: string, manifest: object, config: HtmlShareConfi
       writeFileSync(target, readFileSync(path.join(iconsDir, name)));
     }
   }
-  mkdirSync(path.join(consoleRoot, 'app'), { recursive: true });
-  writeFileSync(path.join(consoleRoot, 'app', 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  writeConsoleList(path.join(consoleRoot, 'app'), manifest);
   writeFileSync(path.join(consoleRoot, 'app.webmanifest'), `${JSON.stringify({
     name: 'HTML共有くん',
     short_name: '共有くん',
@@ -64,8 +98,8 @@ function copyConsole(buildRoot: string, manifest: object, config: HtmlShareConfi
     start_url: '/app/index.html',
     scope: '/',
     display: 'standalone',
-    background_color: '#f6f7f9',
-    theme_color: '#0e0d6a',
+    background_color: theme.background,
+    theme_color: theme.base,
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -136,7 +170,83 @@ export function assertNotShrinking(remoteCount: number, localCount: number, allo
  * 数えるのは「いまバケットに実在し、今回の削除対象になるキー」だけ。すでに配信先に無い過去の
  * 保管庫ページまで余裕にすると、現役ページが誤って欠けたときの大量削除を通してしまう
  */
-export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovalKeys: Iterable<string> = []): Promise<void> {
+/**
+ * 設定ファイルを git で複数の端末と共有しているとき、まだ取り込んでいない変更が上流にあるかを調べる。
+ *
+ *   別の端末が足したページは、pull するまでこの端末の build に無い。そのまま送ると
+ *   syncTree は「ローカルに無いキー」として、届いたばかりのページを消してしまう。
+ *   上流で設定ファイルが変わっている、または上流を確かめられないときは true を返し、呼び出し側は消さずに送る。
+ *   git 管理外・上流なしのときは false（従来どおり消す）。
+ */
+export function hasUnpulledConfigChanges(
+  configFile: string,
+  git: (args: string[]) => string = (args) => execFileSync('git', args, {
+    cwd: path.dirname(configFile),
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    timeout: 20_000,
+  }),
+): boolean {
+  try {
+    git(['rev-parse', '--abbrev-ref', '@{u}']);
+  } catch {
+    return false;
+  }
+  try {
+    git(['fetch', '--quiet']);
+    return git(['diff', '--name-only', 'HEAD...@{u}', '--', path.basename(configFile)]).trim() !== '';
+  } catch {
+    return true;
+  }
+}
+
+type ListedPage = { slug?: string; objectKey?: string; date?: string };
+type PageList = { pages?: ListedPage[]; archived?: ListedPage[] };
+
+/**
+ * Keep pages that another device published but this one has not pulled yet.
+ *
+ *   The page list is rebuilt from the local config on every publish. When the upstream has
+ *   unpulled changes, pages are uploaded without removing anything, but the rebuilt list would
+ *   still drop the pages this device does not know about: they stay reachable by URL yet vanish
+ *   from the dashboard. This adds them back from the list currently in the bucket, as long as
+ *   their content object still exists. Returns the slugs it added.
+ */
+export function mergeRemotePages(local: PageList, remote: PageList | null, contentKeys: Set<string>): string[] {
+  const lists = { pages: (local.pages ??= []), archived: (local.archived ??= []) };
+  const known = new Set([...lists.pages, ...lists.archived].map((page) => page.slug));
+  const added: string[] = [];
+  for (const listName of ['pages', 'archived'] as const) {
+    for (const item of remote?.[listName] ?? []) {
+      if (!item?.slug || known.has(item.slug)) continue;
+      if (listName === 'pages' && (!item.objectKey || !contentKeys.has(item.objectKey))) continue;
+      lists[listName].push(item);
+      known.add(item.slug);
+      added.push(item.slug);
+    }
+  }
+  if (added.length > 0) {
+    for (const listName of ['pages', 'archived'] as const) {
+      lists[listName].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
+    }
+  }
+  return added;
+}
+
+async function readRemoteJson(client: S3Client, bucket: string, key: string): Promise<PageList | null> {
+  try {
+    const object = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    return JSON.parse(await object.Body!.transformToString()) as PageList;
+  } catch (error) {
+    const e = error as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return null;
+    throw error;
+  }
+}
+
+export async function syncTree(client: S3Client, bucket: string, root: string, expectedRemovalKeys: Iterable<string> = [], allowDelete = true): Promise<void> {
+
   const remote = await remoteObjects(client, bucket);
   const local = files(root);
   const localKeys = new Set(local.map((relative) => relative.split(path.sep).join('/')));
@@ -144,7 +254,7 @@ export async function syncTree(client: S3Client, bucket: string, root: string, e
   for (const key of new Set(expectedRemovalKeys)) {
     if (remote.has(key) && !localKeys.has(key)) expectedRemovals += 1;
   }
-  assertNotShrinking(remote.size, local.length + expectedRemovals);
+  if (allowDelete) assertNotShrinking(remote.size, local.length + expectedRemovals);
   const kept = new Set<string>();
   for (const relative of local) {
     const file = path.join(root, relative);
@@ -160,7 +270,7 @@ export async function syncTree(client: S3Client, bucket: string, root: string, e
       CacheControl: 'no-store, max-age=0',
     }));
   }
-  await deleteKeys(client, bucket, [...remote.keys()].filter((key) => !kept.has(key)));
+  if (allowDelete) await deleteKeys(client, bucket, [...remote.keys()].filter((key) => !kept.has(key)));
 }
 
 /**
@@ -275,8 +385,26 @@ export async function publish(config: HtmlShareConfig): Promise<{ consoleUrl: st
     const { buildRoot, manifest } = buildUnlocked(config);
     copyConsole(buildRoot, ownerManifest(manifest, config), config);
     const client = r2Client(config);
-    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.map((page) => `pages/${page.slug}/index.html`));
+    const allowDelete = !hasUnpulledConfigChanges(config.configFile);
+    if (!allowDelete) {
+      console.warn('The page list has changes upstream that are not pulled yet (or the upstream could not be checked). Uploading without removing pages; pull and publish again to clean up.');
+    }
+    await syncTree(client, config.cloudflare.contentBucket, path.join(buildRoot, 'content'), manifest.archived.map((page) => `pages/${page.slug}/index.html`), allowDelete);
+    if (!allowDelete) {
+      // Uploading without removals: keep the other devices' pages in the dashboard list too
+      const appDir = path.join(buildRoot, 'console', 'app');
+      const local = JSON.parse(readFileSync(path.join(appDir, 'manifest.json'), 'utf8')) as PageList;
+      const remote = await readRemoteJson(client, config.cloudflare.consoleBucket, 'app/manifest.json');
+      const contentKeys = new Set((await remoteObjects(client, config.cloudflare.contentBucket)).keys());
+      const kept = mergeRemotePages(local, remote, contentKeys);
+      if (kept.length > 0) {
+        // 画面が読む list.json・archive.json も、足し戻した後の一覧から作り直す
+        writeConsoleList(appDir, local);
+        console.warn(`Kept ${kept.length} page(s) from the upstream in the dashboard list: ${kept.join(', ')}`);
+      }
+    }
     await syncTree(client, config.cloudflare.consoleBucket, path.join(buildRoot, 'console'));
+
     return {
       consoleUrl: `${consoleUrl(config)}/app/index.html`,
       pages: manifest.pages.length,
@@ -309,8 +437,13 @@ export function share(config: HtmlShareConfig, query: string, days: number): str
 }
 
 export function matchingPages<T extends Pick<BuiltPage, 'slug' | 'title'>>(pages: T[], query: string): T[] {
+  // Exact slug first, then a unique exact title, then partial matches. Without the title
+  // step, a page titled exactly as the query stops resolving once another page's title
+  // starts with the same words.
   const exact = pages.filter((page) => page.slug === query);
   if (exact.length > 0) return exact;
+  const titleExact = pages.filter((page) => page.title === query);
+  if (titleExact.length === 1) return titleExact;
   return pages.filter((page) => page.slug.includes(query) || page.title.includes(query));
 }
 

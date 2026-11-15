@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { homedir, hostname } from 'node:os';
 import path from 'node:path';
 import type { HtmlShareConfig } from './config.js';
+import { pullImages, type PulledBatch, type UploadBatch } from './inbox-images.js';
 
 interface DeviceCredentials {
   deviceToken: string;
@@ -17,9 +18,16 @@ export interface ReviewCard {
   question: string;
   context?: string;
   recommendation?: string;
+  /** run＝承認すると Claude が recommendation を実行する、todo＝本人の作業で承認は「済んだ」の合図 */
+  kind?: '' | 'run' | 'todo';
+  approved?: boolean;
   status?: string;
   source?: string;
   target?: string | null;
+  /** スマホから添えた画像の束。images は取り込んだ画像の絶対パス */
+  attachmentBatch?: string;
+  attachmentCount?: number;
+  images?: string[];
   responseText?: string;
   updatedAt?: string;
   createdAt?: string;
@@ -125,6 +133,27 @@ export async function completeReviews(config: HtmlShareConfig, ids: string[]): P
   for (const id of ids) {
     await request(config, `/device/reviews/${encodeURIComponent(id)}/complete`, { method: 'POST', body: {} });
   }
+}
+
+async function download(config: HtmlShareConfig, url: string): Promise<Buffer> {
+  if (!/^\/device\/uploads\/[0-9a-f-]+\/\d+$/i.test(url)) throw new Error('Invalid image path');
+  const saved = loadCredentials();
+  if (!saved || saved.apiBase !== apiBase(config)) throw new Error('This computer is not paired to this console');
+  const response = await fetch(`${apiBase(config)}${url}`, { headers: { 'x-review-device-token': saved.deviceToken }, signal: AbortSignal.timeout(60_000) });
+  if (!response.ok) throw new Error(`Could not download an image (${response.status})`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/** スマホから届いた画像を手元へ取り込み、一時置き場から消す。only を渡すとその束だけ */
+export async function pullInboxImages(config: HtmlShareConfig, only?: string[]): Promise<PulledBatch[]> {
+  return pullImages({
+    list: async () => ((await request(config, '/device/uploads')).items ?? []) as UploadBatch[],
+    done: async (batchId) => {
+      await request(config, `/device/uploads/${encodeURIComponent(batchId)}/done`, { method: 'POST', body: {} });
+    },
+    download: (url) => download(config, url),
+    only,
+  });
 }
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));

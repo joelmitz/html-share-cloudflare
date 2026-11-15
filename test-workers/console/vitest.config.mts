@@ -31,7 +31,7 @@ export default defineConfig(async () => {
           compatibilityDate: '2026-08-01',
           compatibilityFlags: ['nodejs_compat'],
           d1Databases: ['DB'],
-          r2Buckets: ['CONSOLE'],
+          r2Buckets: ['CONSOLE', 'INBOX_IMAGES'],
           // Worker からの外部fetchをNode側でモックする（Access certsエンドポイントのみ許可）
           outboundService(request: Request) {
             const url = new URL(request.url);

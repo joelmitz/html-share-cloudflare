@@ -49,11 +49,21 @@ test('ships the full dashboard UI and inbox wording', () => {
   assert.doesNotMatch(review, /<select[^>]*id="compose-target"/);
   assert.match(review, /id="target-list"/);
   assert.match(review, /function renderTargetOptions/);
-  assert.match(review, /JSON\.stringify\(\{ question: text, target \}\)/);
+  // 送るボタンの影・縮みを▼と候補へ漏らさない。hidden の▼は display:flex に負けず消える
+  assert.doesNotMatch(review, /^\.compose button/m);
+  assert.match(review, /\.compose \.target-open\[hidden\] \{ display: none; \}/);
+  assert.match(review, /JSON\.stringify\(\{ question: text, target, /);
+  // 画像はブラウザで JPEG へ描き直し（HEIC を避け、撮影データを落とす）、一時置き場へ直接送ってから依頼に束を添える
+  assert.match(review, /accept="image\/\*" multiple/, '画像を複数枚選べる');
+  assert.match(review, /canvas\.toBlob\(resolve, 'image\/jpeg'/, '送る前に JPEG へ描き直す');
+  assert.match(review, /attachmentBatch: batch\.batchId/, '依頼に画像の束を添える');
   assert.match(review, /targetField\.value = '';/);
   assert.match(review, /function measureClamps/, '長いカードは実寸で畳む');
   assert.match(review, /\.body\.clamped/);
   assert.match(review, /function copyText/, 'カード本文のコピーボタン');
+  assert.match(review, /kind-badge run">承認で実行/, 'run のカードは承認で実行と見せる');
+  assert.match(review, /kind-badge todo">あなたの番/, 'todo のカードは本人の作業と見せる');
+  assert.match(review, /'済んだ'/, 'todo の承認ボタンは済んだの合図');
   assert.match(dashboard, /id="review-dot"/);
   assert.match(dashboard, /function refreshInboxDot/);
   assert.match(dashboard, /\/api\/owner\/reviews/);
@@ -140,7 +150,14 @@ test('keeps generated report sections within the mobile viewport', () => {
   assert.match(template, /\.grid > \*, \.ba > \* \{ min-width: 0; \}/);
 });
 
-test('uses the CloudFront payload hash header for review requests', () => {
+test('keeps phone images behind authenticated Worker endpoints', () => {
+  const worker = readFileSync(path.join(root, 'workers', 'console', 'src', 'index.ts'), 'utf8');
+  assert.match(worker, /requireOwner\(request, env\)/);
+  assert.match(worker, /uploadApi\(request, env, 'owner'/);
+  assert.match(worker, /uploadApi\(request, env, 'device'/);
+});
+
+test('provisions managed login branding and the CloudFront payload hash header', () => {
   const client = readFileSync(path.join(root, 'src', 'review-client.ts'), 'utf8');
   assert.match(client, /'x-amz-content-sha256'/);
   assert.doesNotMatch(client, /'x-content-sha256'/);
@@ -301,8 +318,42 @@ test('does not throw when the page frame is on another origin', () => {
 test('lists archived pages behind a toggle and asks the inbox to revive them', () => {
   const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
   assert.match(dashboard, /<button id="archive-toggle" type="button">/, '保管庫の入口は削除済みと並べて一覧の末尾に置く');
-  assert.match(dashboard, /archivedPages = \[\.\.\.\(data\.archived \?\? \[\]\)\]/, 'manifest.archived から保管庫を読む');
+  assert.match(dashboard, /archivedPages = \[\.\.\.\(data\.archived \?\? \[\]\)\]/, 'archive.json の archived から保管庫を読む');
+  assert.match(dashboard, /fetch\('archive\.json'/, '保管庫の行は archive.json から取る');
+  assert.match(dashboard, /addEventListener\('click', async \(\) => \{\s*if \(!showingArchive\) \{[\s\S]{0,120}await loadArchive\(\)/, '保管庫を開いたときにだけ取る');
+  assert.match(dashboard, /保管庫 \$\{archivedCount\}件/, 'トップの件数は list.json の archivedCount から出す');
   assert.match(dashboard, /function archiveRow\(page\)[\s\S]{0,400}document\.createElement\('div'\)/, '保管庫の行は開けないので a にしない');
   assert.match(dashboard, /html-share page revive \$\{page\.slug\}/, '戻すコマンドを依頼文に入れる');
   assert.match(dashboard, /fetch\('\/api\/owner\/reviews', \{[\s\S]{0,200}'x-amz-content-sha256': await sha256\(body\)/, '依頼の POST に本文のハッシュを付ける');
+});
+
+test('reads the slim list for the top page and keeps the full manifest for publish', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  const shell = readFileSync(path.join(root, 'web', 'mobile-page-shell.js'), 'utf8');
+  assert.match(dashboard, /new URL\('list\.json', location\.href\)/);
+  assert.doesNotMatch(dashboard, /fetch\('manifest\.json'/, 'トップは保管庫を含む manifest.json を読まない');
+  assert.match(shell, /fetch\('\/app\/list\.json'/);
+  assert.doesNotMatch(shell, /\/app\/manifest\.json/);
+});
+
+test('renders first from the last list kept in a dedicated cache, then refreshes', () => {
+  const dashboard = readFileSync(path.join(root, 'web', 'app', 'index.html'), 'utf8');
+  assert.match(dashboard, /caches\.open\(BOOT_CACHE\)\)\.match\(LIST_URL\)/, '前回の一覧を写しから読む');
+  assert.match(dashboard, /cache\.put\(LIST_URL, new Response\(text/, '取れた最新の一覧を写しに残す');
+  // 写しで描いている間は本人設定を整理も送信もしない（loadPreferences を呼ばない・リモート保存を止める）
+  const boot = dashboard.match(/readBootCopy\(\)\.then\(\(copy\) => \{[\s\S]*?\n {2}\}\);/)?.[0];
+  assert.ok(boot, '写しで描く処理がありません');
+  assert.doesNotMatch(boot, /loadPreferences|saveLocalPreferences|persistPreferencesRemote|queuePreferenceSave/);
+  assert.match(boot, /onBootCopy = true/);
+  assert.match(dashboard, /if \(onBootCopy\) return;/, '写しの間はサーバーへ書き戻さない');
+  assert.match(dashboard, /if \(bootRendered\) rerenderKeepingScroll\(\)/, '最新が着いたら位置を保って描き直す');
+  // 起動時の本人設定の書き戻しは描画を待たせない
+  const load = dashboard.match(/async function loadPreferences\(\) \{[\s\S]*?\n {2}\}\n/)?.[0];
+  assert.ok(load, 'loadPreferences がありません');
+  assert.doesNotMatch(load, /await persistPreferencesRemote\(\)/);
+});
+
+test('sets no-store headers for private console responses', () => {
+  const worker = readFileSync(path.join(root, 'workers', 'console', 'src', 'index.ts'), 'utf8');
+  assert.match(worker, /headers\.set\('cache-control', 'no-store, max-age=0'\)/);
 });
