@@ -2,23 +2,25 @@
 # upstream package.json の version だけを fork の package/lock に反映する。
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo 'usage: sync-upstream-version.sh <fork-remote> <upstream-remote>' >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  echo 'usage: sync-upstream-version.sh <fork-remote> <upstream-remote> [fork-branch=main]' >&2
   exit 2
 fi
 
 fork_remote=$1
 upstream_remote=$2
+# 対象の fork ブランチ（既定 main）。upstream 側は常に main を見る。
+fork_branch=${3:-main}
 if [ -n "$(git status --porcelain=v1)" ]; then
   echo 'working tree is not clean; refusing to update version' >&2
   exit 1
 fi
 
-git fetch --no-tags "$fork_remote" '+refs/heads/main:refs/sync-version/fork-main'
+git fetch --no-tags "$fork_remote" "+refs/heads/${fork_branch}:refs/sync-version/fork-main"
 git fetch --no-tags "$upstream_remote" '+refs/heads/main:refs/sync-version/upstream-main'
 if [ "$(git rev-parse HEAD)" != "$(git rev-parse refs/sync-version/fork-main)" ] ||
    ! git merge-base --is-ancestor refs/sync-version/upstream-main HEAD; then
-  echo 'fork main is not the checked-out, synchronized HEAD; refusing to update version' >&2
+  echo 'fork ${fork_branch} is not the checked-out, synchronized HEAD; refusing to update version' >&2
   exit 1
 fi
 
@@ -44,5 +46,5 @@ git add -- package.json package-lock.json
 git diff --cached --check
 git -c user.name='html-share sync' -c user.email='github-actions[bot]@users.noreply.github.com' \
   commit -m "chore: upstream package version $upstream_version に同期"
-git push "$fork_remote" HEAD:refs/heads/main
+git push "$fork_remote" "HEAD:refs/heads/${fork_branch}"
 echo "synced fork package version to $upstream_version"
