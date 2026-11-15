@@ -49,6 +49,7 @@
     "preview": "node scripts/preview.mjs .html-share/build/console",
     "deploy:content": "node scripts/check-wrangler-config.mjs workers/content/wrangler.jsonc && wrangler deploy --config workers/content/wrangler.jsonc",
     "deploy:internal": "node scripts/check-wrangler-config.mjs workers/internal/wrangler.jsonc && wrangler deploy --config workers/internal/wrangler.jsonc",
+    "predeploy:console": "tsx scripts/build-console-assets.ts",
     "deploy:console": "node scripts/check-wrangler-config.mjs workers/console/wrangler.jsonc && wrangler deploy --config workers/console/wrangler.jsonc",
     "deploy": "npm run deploy:content && npm run deploy:internal && npm run deploy:console"
   },

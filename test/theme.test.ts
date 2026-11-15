@@ -63,3 +63,21 @@ test('the starter page follows the site theme when a page theme of that name exi
   assert.equal(await pageTheme(undefined), 'light');
   assert.equal(await pageTheme('light', config('classic')), 'light');
 });
+
+test('builds themed static assets without modifying web source', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { buildConsoleAssets } = await import('../scripts/build-console-assets.js');
+  const dir = mkdtempSync(path.join(tmpdir(), 'html-share-theme-'));
+  try {
+    const original = readFileSync(path.join(root, 'web/app/index.html'), 'utf8');
+    buildConsoleAssets(config() as HtmlShareConfig, dir);
+    const html = readFileSync(path.join(dir, 'app/index.html'), 'utf8');
+    assert.match(html, /site theme: light/);
+    assert.equal(readFileSync(path.join(root, 'web/app/index.html'), 'utf8'), original);
+    const manifest = JSON.parse(readFileSync(path.join(dir, 'app.webmanifest'), 'utf8'));
+    assert.equal(manifest.theme_color, loadSiteTheme(config()).base);
+    buildConsoleAssets(config('classic') as HtmlShareConfig, dir);
+    assert.doesNotMatch(readFileSync(path.join(dir, 'app/index.html'), 'utf8'), /site theme: classic/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

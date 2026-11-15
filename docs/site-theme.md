@@ -68,3 +68,7 @@ v2 のページは `<html lang="ja" data-brief="light">` のように `data-brie
 `data-brief` の無いページには、これまでどおり v1 の規則（ヒーローの白文字、カード内の表の帯の打ち消しなど）を当てます。
 
 ページのテーマを足すときは、`brief.css` の `:root[data-brief="light"]` の塊を別の名前で写して値を変えます。雛形の `--theme` と検査は、`brief.css` とページに書かれた名前をそのまま受け付けます。
+
+### Cloudflareの複数端末版
+
+管理画面はWorkerの静的アセットとして配布します。`npm run deploy:console` は事前に `HTML_SHARE_CONFIG`（省略時は通常の設定ファイル探索）の `content.siteTheme` を読み、`.html-share/console-assets/` にテーマ適用済みのアセットを生成します。テーマ変更はコンソールWorkerを再デプロイしたときに反映され、通常の `html-share publish` だけでは管理画面のテーマは変わりません。`web/` 自体は書き換えません。デプロイは所定のレビューと承認を得てから行います。
