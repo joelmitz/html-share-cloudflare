@@ -220,3 +220,14 @@ test('private image upload is accepted only for owner and fetched only by a pair
   const done = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/done`, {method:'POST',headers:{'x-review-device-token':deviceToken}});
   expect(done.status).toBe(200);
 });
+
+test('uploaded attachment cannot be reused by another inbox request', async () => {
+  const headers = await ownerHeaders();
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, {method:'POST',headers,body:JSON.stringify({count:1})});
+  const {batchId,uploads} = await create.json() as any;
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`,{method:'POST',headers,body:new Uint8Array([255,216,255,0])})).status).toBe(200);
+  expect((await SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`,{method:'POST',headers,body:'{}'})).status).toBe(200);
+  const payload=JSON.stringify({question:'image request',attachmentBatch:batchId});
+  expect((await SELF.fetch(`${CONSOLE}/api/owner/reviews`,{method:'POST',headers,body:payload})).status).toBe(201);
+  expect((await SELF.fetch(`${CONSOLE}/api/owner/reviews`,{method:'POST',headers,body:payload})).status).toBe(400);
+});

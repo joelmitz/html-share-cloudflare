@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { homedir, hostname } from 'node:os';
 import path from 'node:path';
 import type { HtmlShareConfig } from './config.js';
-import { pullImages, type PulledBatch, type UploadBatch } from './inbox-images.js';
+import { filesForBatch, pullImages, type PulledBatch, type UploadBatch } from './inbox-images.js';
 
 interface DeviceCredentials {
   deviceToken: string;
@@ -146,7 +146,7 @@ async function download(config: HtmlShareConfig, url: string): Promise<Buffer> {
 
 /** スマホから届いた画像を手元へ取り込み、一時置き場から消す。only を渡すとその束だけ */
 export async function pullInboxImages(config: HtmlShareConfig, only?: string[]): Promise<PulledBatch[]> {
-  return pullImages({
+  const pulled = await pullImages({
     list: async () => ((await request(config, '/device/uploads')).items ?? []) as UploadBatch[],
     done: async (batchId) => {
       await request(config, `/device/uploads/${encodeURIComponent(batchId)}/done`, { method: 'POST', body: {} });
@@ -154,6 +154,8 @@ export async function pullInboxImages(config: HtmlShareConfig, only?: string[]):
     download: (url) => download(config, url),
     only,
   });
+  for (const id of only ?? []) if (!filesForBatch(id).length) throw new Error(`Attached images are unavailable or expired: ${id}`);
+  return pulled;
 }
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));

@@ -160,3 +160,10 @@ test('the browser picks the nearest deadline with the same rule, including pinne
   assert.match(html, /return withDue\(\{ id: `@added:\$\{key\}`/);
   assert.match(html, /meta\?\.streamDues\?\.\[item\.stream\]/);
 });
+
+test('accepts only the known review card kinds', () => {
+  assert.equal(cardKind(undefined), '');
+  assert.equal(cardKind(' run '), 'run');
+  assert.equal(cardKind('todo'), 'todo');
+  assert.throws(() => cardKind('later'), /kind must be run or todo/);
+});

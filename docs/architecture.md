@@ -48,26 +48,20 @@ CloudFrontの署名URL/署名Cookieの代わりに、Workerが自前で署名を
 
 インボックスの依頼欄から、画像を最大20枚まで送れます。本文を書けば依頼に添付され、本文が空なら画像だけがPCへ届きます。
 
-画像の中身はReview APIを通しません。CloudFrontからFunction URLへ転送する経路は本文のSHA-256ハッシュが要り、大きな画像に向かないためです。APIは1枚ずつのアップロード許可証（S3の署名付きPOST）だけを発行し、ブラウザが非公開の一時置き場（`UploadBucket`）へ直接送ります。
+画像はコンソールWorkerの認証付きAPIを経由し、専用の非公開R2バケットへ保存します。1束は最大20枚、1枚は最大15 MiBのJPEGです。Workerはストリームの累積サイズとJPEGの先頭を検査します。
 
 | API | 認証 | 役割 |
 |---|---|---|
-| `POST /api/owner/uploads` | 署名Cookie | 枚数分の許可証を発行する。`image/jpeg`・1枚15MBまで・10分で失効 |
-| `POST /api/owner/uploads/<id>/commit` | 署名Cookie | 届いた画像をS3で数え直し、届いた分だけで束を `ready` にする |
-| `GET /api/device/uploads` | 端末トークン | `ready` の束と、10分で失効する取り出し用の署名付きURLを返す |
-| `POST /api/device/uploads/<id>/done` | 端末トークン | 取り込んだ束の画像と記録を消す |
+| `POST /api/owner/uploads` | Access JWT・Origin | 画像束を作成する |
+| `POST /api/owner/uploads/<id>/<index>` | Access JWT・Origin | JPEGを専用R2へ保存する |
+| `POST /api/owner/uploads/<id>/commit` | Access JWT・Origin | 届いた画像を確認して束を `ready` にする |
+| `GET /api/device/uploads` | 端末トークン | 取得可能な束を一覧する |
+| `GET /api/device/uploads/<id>/<index>` | 端末トークン | 画像を取得する |
+| `POST /api/device/uploads/<id>/done` | 端末トークン | 取り込み済み画像と束の記録を削除する |
 
-依頼（`POST /api/owner/reviews`）に `attachmentBatch` を付けると、`ready` の束だけを受け付け、依頼に `attachmentBatch` と `attachmentCount` を、束に依頼の `taskId` を書きます。束はDynamoDBの `pk=UPLOAD` に置きます。
+依頼に添付した束はD1で依頼と原子的に結び付けます。画像は登録済み端末が取得できます。ブラウザは送信前に長辺2000pxのJPEGへ変換します。PC側への保存に成功してからサーバー側の画像を削除します。
 
-ブラウザは送る前に、画像をcanvasで長辺2000pxのJPEGへ描き直します。iPhoneの標準形式（HEIC）を読めないエージェントが多いことと、位置情報などの撮影データを落とすためです。透過部分には白を敷きます。管理面のCSPは、サムネイル用に `img-src blob:` を、直接送るために一時置き場のオリジンを `connect-src` へ足しています。バケットのCORSは管理面のオリジンからのPOSTだけを許可します。
-
-PCでは `html-share review images` が届いた束を取り込み、`html-share review inbox` は画像つきの依頼を受け取った時点でその束を取り込んで、依頼の `images` に絶対パスを載せます。
-
-- 置き場：`~/Pictures/html-share-inbox/<日付>/`（`HTML_SHARE_IMAGES_DIR` で変更可）。日付と時刻はPCの時刻で付けます
-- 束と依頼の対応：同じフォルダの `.index.json`
-- 手元への書き込みが済んでから `done` を呼ぶので、途中で失敗しても次の取り込みで取り直せます
-
-画像は長く残しません。一時置き場からはPCが取り込んだ時点で消え、取り込み忘れはS3のライフサイクルとDynamoDBのTTLが7日で消します。PCに取り込んだものも、30日を過ぎた日付フォルダから消します。
+専用バケットの `inbox/` に7日期限のR2ライフサイクルルールを事前設定し、取り込み忘れを回収します。期限切れ削除は即時ではありません。D1の期限切れメタデータは遅延削除し、PC側の画像は30日を過ぎた日付フォルダから削除します。
 
 ## 閲覧面の表
 

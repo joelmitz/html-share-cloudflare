@@ -40,6 +40,7 @@ export async function uploadApi(request: Request, env: UploadEnv, role: 'owner' 
     const object = await env.INBOX_IMAGES.get(k); return object ? new Response(object.body,{headers:{'content-type':'image/jpeg','cache-control':'no-store','x-content-type-options':'nosniff'}}) : result(404,{error:'Image not found'});
   }
   if (role === 'device' && request.method === 'POST' && match[3] === 'done') {
+    if (batch.status !== 'ready') return result(409,{error:'Upload is not ready'});
     await env.INBOX_IMAGES.delete(JSON.parse(batch.keys_json) as string[]); await env.DB.prepare('DELETE FROM upload_batches WHERE id=?1').bind(id).run(); return result(200,{deleted:id});
   }
   return null;
