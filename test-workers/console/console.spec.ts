@@ -454,6 +454,27 @@ test('private image upload is accepted only for owner and fetched only by a pair
   expect(done.status).toBe(200);
 });
 
+test('attached text requires the claiming device and survives mixed uploads', async () => {
+  const first = await pairDevice('text claimant');
+  const second = await pairDevice('other device');
+  const headers = await ownerHeaders();
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, {method:'POST',headers,body:JSON.stringify({count:1,text:true,attached:true})});
+  const {batchId,uploads} = await create.json() as any;
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`, {method:'POST',headers,body:new Uint8Array([255,216,255,0])})).status).toBe(200);
+  const commit = () => SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, {method:'POST',headers,body:'{}'});
+  expect((await commit()).status).toBe(400);
+  expect((await SELF.fetch(`${CONSOLE}${uploads[1].url}`, {method:'POST',headers,body:'全文'})).status).toBe(200);
+  expect((await commit()).status).toBe(200);
+  const send = await SELF.fetch(`${CONSOLE}/api/owner/reviews`, {method:'POST',headers,body:JSON.stringify({question:'抜粋',attachmentBatch:batchId})});
+  const {item} = await send.json() as any;
+  expect(item).toMatchObject({attachmentText:true,attachmentCount:1});
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':first}})).status).toBe(404);
+  expect((await SELF.fetch(`${CONSOLE}/api/device/reviews/${item.id}/claim`, {method:'POST',headers:{'x-review-device-token':first},body:'{}'})).status).toBe(200);
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':second}})).status).toBe(404);
+  const text = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':first}});
+  expect(text.headers.get('content-type')).toContain('text/plain'); expect(await text.text()).toBe('全文');
+});
+
 test('attached images are visible only to the device that claimed the request', async () => {
   async function paired(): Promise<string> {
     const pairing = await SELF.fetch(`${CONSOLE}/api/owner/pairings`, {method:'POST',headers:await ownerHeaders()});

@@ -248,14 +248,16 @@ interface TaskRow {
   completed_at: string | null;
   device_name: string | null; // devicesとのLEFT JOINで得る。'OWNER'等の非ペアリング済みIDはnullのまま
   attachment_batch: string | null;
+  attachment_keys: string | null;
 }
 
 // devicesとのLEFT JOIN込みのSELECT。in_progress表示（作業中バッジ+デバイス名）が
 // claim直後のレスポンス・一覧取得のいずれでも同じ形になるよう、tasksを読む
 // 全箇所で共通化する（webの契約: deviceName。旧claimedByは使わない）。
-const TASK_SELECT = 'SELECT t.*, d.name AS device_name FROM tasks t LEFT JOIN devices d ON d.id = t.device_id';
+const TASK_SELECT = 'SELECT t.*, d.name AS device_name, (SELECT keys_json FROM upload_batches WHERE id=t.attachment_batch) AS attachment_keys FROM tasks t LEFT JOIN devices d ON d.id = t.device_id';
 
 function publicTask(row: TaskRow): Record<string, unknown> {
+  const attachmentKeys: string[] = row.attachment_keys ? JSON.parse(row.attachment_keys) : [];
   return {
     id: row.id,
     source: row.source,
@@ -270,6 +272,7 @@ function publicTask(row: TaskRow): Record<string, unknown> {
     updatedAt: row.updated_at,
     ...(row.target === null ? {} : { target: row.target }),
     ...(row.attachment_batch ? { attachmentBatch: row.attachment_batch } : {}),
+    ...(attachmentKeys.length ? { attachmentCount: attachmentKeys.filter(key => !key.endsWith('/text.txt')).length, attachmentText: attachmentKeys.some(key => key.endsWith('/text.txt')) } : {}),
     ...(row.approved === null ? {} : { approved: row.approved === 1 }),
     ...(row.response_text === null ? {} : { responseText: row.response_text }),
     ...(row.completed_at === null ? {} : { completedAt: row.completed_at }),

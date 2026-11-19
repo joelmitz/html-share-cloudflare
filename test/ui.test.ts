@@ -52,7 +52,11 @@ test('ships the full dashboard UI and inbox wording', () => {
   // 送るボタンの影・縮みを▼と候補へ漏らさない。hidden の▼は display:flex に負けず消える
   assert.doesNotMatch(review, /^\.compose button/m);
   assert.match(review, /\.compose \.target-open\[hidden\] \{ display: none; \}/);
-  assert.match(review, /JSON\.stringify\(\{ question: text, target,/);
+  assert.match(review, /JSON\.stringify\(\{ question: long \? excerptOf\(text\) : text, target, /);
+  // 画像はブラウザで JPEG へ描き直し（HEIC を避け、撮影データを落とす）、一時置き場へ直接送ってから依頼に束を添える
+  assert.match(review, /accept="image\/\*" multiple/, '画像を複数枚選べる');
+  assert.match(review, /canvas\.toBlob\(resolve, 'image\/jpeg'/, '送る前に JPEG へ描き直す');
+  assert.match(review, /attachmentBatch: batch\.batchId/, '依頼に画像の束を添える');
   assert.match(review, /targetField\.value = '';/);
   assert.match(review, /function measureClamps/, '長いカードは実寸で畳む');
   assert.match(review, /\.body\.clamped/);
@@ -430,4 +434,15 @@ test('lists archived pages behind a toggle and asks the inbox to revive them', (
   assert.match(dashboard, /function archiveRow\(page\)[\s\S]{0,400}document\.createElement\('div'\)/, '保管庫の行は開けないので a にしない');
   assert.match(dashboard, /html-share page revive \$\{page\.slug\}/, '戻すコマンドを依頼文に入れる');
   assert.match(dashboard, /fetch\('\/api\/owner\/reviews', \{[\s\S]{0,200}'x-amz-content-sha256': await sha256\(body\)/, '依頼の POST に本文のハッシュを付ける');
+});
+
+test('expands data-zoom figures to the full window on click', () => {
+  const zoom = readFileSync(path.join(root, 'web', 'fig-zoom.js'), 'utf8');
+  const bundle = readFileSync(path.join(root, 'src', 'bundle.ts'), 'utf8');
+  assert.match(zoom, /querySelectorAll\('\[data-zoom\]'\)/);
+  assert.match(zoom, /window\.frameElement/);
+  assert.match(zoom, /e\.key === 'Escape'/);
+  assert.doesNotMatch(zoom, /<\/(script|body)/i);
+  assert.match(bundle, /data-zoom\[\\s>=\]/);
+  assert.match(bundle, /fig-zoom\.js/);
 });
