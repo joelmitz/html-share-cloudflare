@@ -236,10 +236,14 @@ test('long text attachment is required at commit and fetched by a paired device'
   expect((await SELF.fetch(`${CONSOLE}${uploads[1].url}`, {method:'POST',headers,body:'全文です'})).status).toBe(200);
   expect((await commit()).status).toBe(200);
   const task = await SELF.fetch(`${CONSOLE}/api/owner/reviews`, {method:'POST',headers,body:JSON.stringify({question:'抜粋',attachmentBatch:batchId})});
-  expect((await task.json() as any).item).toMatchObject({attachmentText:true,attachmentCount:1});
+  const {item} = await task.json() as any;
+  expect(item).toMatchObject({attachmentText:true,attachmentCount:1});
   expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`)).status).toBe(401);
   const text = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':deviceToken}});
   expect(text.headers.get('content-type')).toContain('text/plain'); expect(await text.text()).toBe('全文です');
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/done`, {method:'POST',headers:{'x-review-device-token':deviceToken}})).status).toBe(200);
+  const list = await SELF.fetch(`${CONSOLE}/api/owner/reviews`, {headers});
+  expect((await list.json() as any).items.find((row:any) => row.id === item.id)).toMatchObject({attachmentText:true,attachmentCount:1});
 });
 
 test('text-only upload accepts at most 2 MiB', async () => {
