@@ -254,7 +254,7 @@ interface TaskRow {
 // devicesとのLEFT JOIN込みのSELECT。in_progress表示（作業中バッジ+デバイス名）が
 // claim直後のレスポンス・一覧取得のいずれでも同じ形になるよう、tasksを読む
 // 全箇所で共通化する（webの契約: deviceName。旧claimedByは使わない）。
-const TASK_SELECT = 'SELECT t.*, d.name AS device_name, (SELECT keys_json FROM upload_batches WHERE id=t.attachment_batch) AS attachment_keys FROM tasks t LEFT JOIN devices d ON d.id = t.device_id';
+const TASK_SELECT = 'SELECT t.*, d.name AS device_name FROM tasks t LEFT JOIN devices d ON d.id = t.device_id';
 
 function publicTask(row: TaskRow): Record<string, unknown> {
   const attachmentKeys: string[] = row.attachment_keys ? JSON.parse(row.attachment_keys) : [];
@@ -718,8 +718,8 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
         // 束のclaimと依頼作成を同じD1トランザクションに置き、再利用と競合を防ぐ。
         const [linked, inserted] = await env.DB.batch([
           env.DB.prepare("UPDATE upload_batches SET task_id=?1 WHERE id=?2 AND status='ready' AND is_attachment=1 AND task_id IS NULL AND expires_at>?3").bind(id, attachment, now),
-          env.DB.prepare(`INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch)
-            SELECT ?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9 WHERE changes() = 1`).bind(...values),
+          env.DB.prepare(`INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch, attachment_keys)
+            SELECT ?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9, keys_json FROM upload_batches WHERE id = ?9 AND changes() = 1`).bind(...values),
         ]);
         if (!linked.meta.changes || !inserted.meta.changes) return json(env, 400, { error: 'Attachment is not ready or already used' });
       } else {

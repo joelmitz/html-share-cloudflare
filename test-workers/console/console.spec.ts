@@ -473,6 +473,9 @@ test('attached text requires the claiming device and survives mixed uploads', as
   expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':second}})).status).toBe(404);
   const text = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':first}});
   expect(text.headers.get('content-type')).toContain('text/plain'); expect(await text.text()).toBe('全文');
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/done`, {method:'POST',headers:{'x-review-device-token':first}})).status).toBe(200);
+  const list = await SELF.fetch(`${CONSOLE}/api/owner/reviews`, {headers});
+  expect((await list.json() as any).items.find((row:any) => row.id === item.id)).toMatchObject({attachmentText:true,attachmentCount:1});
 });
 
 test('attached images are visible only to the device that claimed the request', async () => {
