@@ -478,6 +478,18 @@ test('attached text requires the claiming device and survives mixed uploads', as
   expect((await list.json() as any).items.find((row:any) => row.id === item.id)).toMatchObject({attachmentText:true,attachmentCount:1});
 });
 
+test('text-only upload accepts at most 2 MiB', async () => {
+  const headers = await ownerHeaders();
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, {method:'POST',headers,body:JSON.stringify({count:0,text:true})});
+  expect(create.status).toBe(201);
+  const {batchId,uploads} = await create.json() as any;
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`, {method:'POST',headers,body:new Uint8Array(2 * 1024 * 1024 + 1)})).status).toBe(413);
+  const commit = () => SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, {method:'POST',headers,body:'{}'});
+  expect((await commit()).status).toBe(400);
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`, {method:'POST',headers,body:'全文'})).status).toBe(200);
+  expect(await (await commit()).json()).toMatchObject({count:1,missing:0});
+});
+
 test('attached images are visible only to the device that claimed the request', async () => {
   async function paired(): Promise<string> {
     const pairing = await SELF.fetch(`${CONSOLE}/api/owner/pairings`, {method:'POST',headers:await ownerHeaders()});
