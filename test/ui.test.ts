@@ -52,7 +52,7 @@ test('ships the full dashboard UI and inbox wording', () => {
   // 送るボタンの影・縮みを▼と候補へ漏らさない。hidden の▼は display:flex に負けず消える
   assert.doesNotMatch(review, /^\.compose button/m);
   assert.match(review, /\.compose \.target-open\[hidden\] \{ display: none; \}/);
-  assert.match(review, /JSON\.stringify\(\{ question: text, target, /);
+  assert.match(review, /JSON\.stringify\(\{ question: long \? excerptOf\(text\) : text, target, /);
   // 画像はブラウザで JPEG へ描き直し（HEIC を避け、撮影データを落とす）、一時置き場へ直接送ってから依頼に束を添える
   assert.match(review, /accept="image\/\*" multiple/, '画像を複数枚選べる');
   assert.match(review, /canvas\.toBlob\(resolve, 'image\/jpeg'/, '送る前に JPEG へ描き直す');
@@ -364,4 +364,15 @@ test('renders first from the last list kept in a dedicated cache, then refreshes
 test('sets no-store headers for private console responses', () => {
   const worker = readFileSync(path.join(root, 'workers', 'console', 'src', 'index.ts'), 'utf8');
   assert.match(worker, /headers\.set\('cache-control', 'no-store, max-age=0'\)/);
+});
+
+test('expands data-zoom figures to the full window on click', () => {
+  const zoom = readFileSync(path.join(root, 'web', 'fig-zoom.js'), 'utf8');
+  const bundle = readFileSync(path.join(root, 'src', 'bundle.ts'), 'utf8');
+  assert.match(zoom, /querySelectorAll\('\[data-zoom\]'\)/);
+  assert.match(zoom, /window\.frameElement/);
+  assert.match(zoom, /e\.key === 'Escape'/);
+  assert.doesNotMatch(zoom, /<\/(script|body)/i);
+  assert.match(bundle, /data-zoom\[\\s>=\]/);
+  assert.match(bundle, /fig-zoom\.js/);
 });

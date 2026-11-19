@@ -184,9 +184,11 @@ interface TaskRow {
   updated_at: string;
   completed_at: string | null;
   attachment_batch: string | null;
+  attachment_keys?: string | null;
 }
 
 function publicTask(row: TaskRow): Record<string, unknown> {
+  const attachmentKeys: string[] = row.attachment_keys ? JSON.parse(row.attachment_keys) : [];
   return {
     id: row.id,
     source: row.source,
@@ -201,6 +203,7 @@ function publicTask(row: TaskRow): Record<string, unknown> {
     updatedAt: row.updated_at,
     ...(row.target === null ? {} : { target: row.target }),
     ...(row.attachment_batch ? { attachmentBatch: row.attachment_batch } : {}),
+    ...(attachmentKeys.length ? { attachmentCount: attachmentKeys.filter(key => !key.endsWith('/text.txt')).length, attachmentText: attachmentKeys.some(key => key.endsWith('/text.txt')) } : {}),
     ...(row.approved === null ? {} : { approved: row.approved === 1 }),
     ...(row.response_text === null ? {} : { responseText: row.response_text }),
     ...(row.completed_at === null ? {} : { completedAt: row.completed_at }),
@@ -217,7 +220,7 @@ async function device(request: Request, env: Env): Promise<{ id: string; name: s
 }
 
 async function tasks(env: Env, now: number): Promise<TaskRow[]> {
-  const result = await env.DB.prepare('SELECT * FROM tasks WHERE expires_at > ?1').bind(now).all<TaskRow>();
+  const result = await env.DB.prepare('SELECT tasks.*, (SELECT keys_json FROM upload_batches WHERE id=tasks.attachment_batch) AS attachment_keys FROM tasks WHERE expires_at > ?1').bind(now).all<TaskRow>();
   return result.results ?? [];
 }
 
@@ -395,7 +398,7 @@ async function handleApi(request: Request, env: Env, path: string, now: number):
         await env.DB.prepare(`INSERT INTO tasks (id, device_id, source, session_id, title, question, context, recommendation, target, status, created_at, updated_at, expires_at, attachment_batch)
           VALUES (?1, ?2, 'owner', ?3, ?4, ?5, '', '', ?6, 'waiting', ?7, ?7, ?8, ?9)`).bind(...values).run();
       }
-      const row = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?1').bind(id).first<TaskRow>();
+      const row = await env.DB.prepare('SELECT tasks.*, (SELECT keys_json FROM upload_batches WHERE id=tasks.attachment_batch) AS attachment_keys FROM tasks WHERE id = ?1').bind(id).first<TaskRow>();
       return json(env, 201, { item: publicTask(row!) });
     }
     if (verb === 'GET' && path === '/api/owner/preferences') {

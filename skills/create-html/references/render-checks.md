@@ -98,6 +98,14 @@ Typical causes of the issues these checks find, and fixes:
 - A long label in a narrow band. Merge the band with its neighbor or shorten the label; do not let the text run outside the band.
 - Timeline headings with leader lines. Centered headings on alternating rows get crossed by the neighboring line. Put each heading to the right of its own line and assign rows from the rightmost entry, each taking the lowest free row, so headings on the left move up and lines never cross them. Leave room to the right of the last entry, and when no row is free, stop generating the figure instead of letting labels overlap.
 
+## Label size at each screen width
+
+An SVG with `width:100%` stretches to its box, so the size a label is drawn at depends on the ratio of the `viewBox` width to the drawn width. One figure cannot serve both a desktop and a phone: it is either oversized on the desktop or unreadable on the phone.
+
+- Draw one SVG per band of screen widths and show only one with `@media`. Make each `viewBox` as wide as the figure is drawn in that band, and write labels at about the body size (about 15 px; 11.5 px or more on phones). Measure the figure's box at several screen widths on the delivered page to choose the bands.
+- The delivered page narrows figures whose labels are larger than the body text and centres them. A narrow `viewBox` stretched across a desktop therefore ends up small in the middle. Check the delivered page, not only the local file.
+- For each band, check that the figure uses at least 85% of its box, that the smallest label is drawn at 11 px or more on phones and 12 px or more on desktops, and that the left and right margins match.
+
 ## Labels on dark lines and dark fills
 
 `issues` must be an empty array. It samples points inside each label and finds the topmost shape drawn before it at each point. Only dark shapes count (relative luminance below 0.5), so light grid lines and pale cards do not trigger it. A label on a dark stroke is reported. A label on a dark fill is reported only when the text is darker than the fill and the contrast ratio is below 4.5, so white text on a dark shape passes. Text with a white halo (`paint-order: stroke` and a stroke of 2 or more) may sit on a line and is skipped. Semi-transparent paint is evaluated as if composited on white; gradients are checked stop by stop.
@@ -203,3 +211,4 @@ Whenever you place an element inside a frame (an illustration in a card, a badge
 - Trim images to their visible pixels before placing them on a shared canvas. Transparent borders differ per image and make the distance from the frame uneven.
 - After adding an element that narrows the text, check that no paragraph or title ends with one or two characters alone on the last line.
 - Keep the measurement as a script next to the deliverable and show the page only when it reports zero failures.
+- Measure HTML that a model or tool generated (a report an agent writes, a converter's output) the same way before you show it. Pages you did not write are the easiest to wave through by eye. When you find a defect, do not patch the generated HTML. Add the layout rule to the generation instructions (the prompt or SOP), wire the measurement script into the generation steps, and regenerate, because the next run would break the same way. If the instructions let the model space blocks with an adjacent-sibling selector (`.a + .a`), the gap drops to zero wherever two different kinds of block meet, so have it set one `gap` on the parent instead.

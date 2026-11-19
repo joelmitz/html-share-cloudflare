@@ -221,6 +221,39 @@ test('private image upload is accepted only for owner and fetched only by a pair
   expect(done.status).toBe(200);
 });
 
+test('long text attachment is required at commit and fetched by a paired device', async () => {
+  const headers = await ownerHeaders();
+  const pairing = await SELF.fetch(`${CONSOLE}/api/owner/pairings`, {method:'POST',headers});
+  const {code} = await pairing.json() as any;
+  const claim = await SELF.fetch(`${CONSOLE}/api/pairings/claim`, {method:'POST',body:JSON.stringify({code,deviceName:'text test'})});
+  const {deviceToken} = await claim.json() as any;
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, {method:'POST',headers,body:JSON.stringify({count:1,text:true})});
+  const {batchId,uploads} = await create.json() as any;
+  expect(uploads).toHaveLength(2);
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`, {method:'POST',headers,body:new Uint8Array([255,216,255,0])})).status).toBe(200);
+  const commit = () => SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, {method:'POST',headers,body:'{}'});
+  expect((await commit()).status).toBe(400);
+  expect((await SELF.fetch(`${CONSOLE}${uploads[1].url}`, {method:'POST',headers,body:'全文です'})).status).toBe(200);
+  expect((await commit()).status).toBe(200);
+  const task = await SELF.fetch(`${CONSOLE}/api/owner/reviews`, {method:'POST',headers,body:JSON.stringify({question:'抜粋',attachmentBatch:batchId})});
+  expect((await task.json() as any).item).toMatchObject({attachmentText:true,attachmentCount:1});
+  expect((await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`)).status).toBe(401);
+  const text = await SELF.fetch(`${CONSOLE}/api/device/uploads/${batchId}/1`, {headers:{'x-review-device-token':deviceToken}});
+  expect(text.headers.get('content-type')).toContain('text/plain'); expect(await text.text()).toBe('全文です');
+});
+
+test('text-only upload accepts at most 2 MiB', async () => {
+  const headers = await ownerHeaders();
+  const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, {method:'POST',headers,body:JSON.stringify({count:0,text:true})});
+  expect(create.status).toBe(201);
+  const {batchId,uploads} = await create.json() as any;
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`, {method:'POST',headers,body:new Uint8Array(2 * 1024 * 1024 + 1)})).status).toBe(413);
+  expect((await SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, {method:'POST',headers,body:'{}'})).status).toBe(400);
+  expect((await SELF.fetch(`${CONSOLE}${uploads[0].url}`, {method:'POST',headers,body:'全文'})).status).toBe(200);
+  const commit = await SELF.fetch(`${CONSOLE}/api/owner/uploads/${batchId}/commit`, {method:'POST',headers,body:'{}'});
+  expect(await commit.json()).toMatchObject({count:1,missing:0});
+});
+
 test('uploaded attachment cannot be reused by another inbox request', async () => {
   const headers = await ownerHeaders();
   const create = await SELF.fetch(`${CONSOLE}/api/owner/uploads`, {method:'POST',headers,body:JSON.stringify({count:1})});
