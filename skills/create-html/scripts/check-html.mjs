@@ -194,6 +194,26 @@ export function checkHtml(source, { baseDir } = {}) {
   if (!optOut && sections.length >= 3 && bare.length * 2 >= sections.length) {
     warn.push(`${bare.length} of ${sections.length} sections have no figure (${bare.join(', ')}); redraw their cards or lists as a flow, contrast, or breakdown`);
   }
+  // Enough figures can still read as monotonous when every one is the same shape (two boxes side by side, three times).
+  // Compare the order of drawn elements, ignoring coordinates, text, and colors.
+  // SVGs inside one <figure> are variants of the same figure (a desktop and a phone drawing), so they count once.
+  const shapeCount = new Map();
+  const sigOf = (svg) => (svg.slice(4).match(/<(rect|path|polygon|circle|ellipse|line|polyline|text)\b/gi) ?? []).map((x) => x.toLowerCase()).join(',');
+  const figureGroups = [];
+  const outside = body
+    .replace(/<svg\b[^>]*class=["'][^"']*\bbrief-defs\b[\s\S]*?<\/svg>/gi, '')
+    .replace(/<figure\b[\s\S]*?<\/figure>/gi, (fig) => {
+      figureGroups.push(new Set((fig.match(/<svg\b[\s\S]*?<\/svg>/gi) ?? []).map(sigOf)));
+      return '';
+    });
+  for (const svg of outside.match(/<svg\b[\s\S]*?<\/svg>/gi) ?? []) figureGroups.push(new Set([sigOf(svg)]));
+  for (const sigs of figureGroups) {
+    for (const sig of sigs) if (sig.split(',').length >= 3) shapeCount.set(sig, (shapeCount.get(sig) ?? 0) + 1);
+  }
+  const sameShape = Math.max(0, ...[...shapeCount.values()].filter((n) => n >= 2));
+  if (sameShape) {
+    warn.push(`${sameShape} figures share the same shape; pick each shape from its content (bars from zero for sizes, boxes and arrows for flows, a fork for decisions, side-by-side boxes only for contrasts). A deliberate pattern comparison that highlights only what changes is fine`);
+  }
   // The opposite imbalance: a section with figures but almost no prose leaves the reader to guess what each figure means.
   const thin = sections
     .filter((sec) => /<svg\b|<img\b/i.test(sec))
@@ -261,6 +281,12 @@ export function checkHtml(source, { baseDir } = {}) {
   for (const list of listSizes(noToc)) {
     // Keep each list to two or three items: from four on, readers mostly stop reading it.
     if (list.items >= 4) warn.push(`"${sectionAt(body, list.index)}" has a list of ${list.items} items; cut or merge it to two or three, split it into category boxes, or draw a sequence as a figure`);
+  }
+  // A card is a container for a title and a short note. A card body that runs past 120 characters makes the reader dig
+  // small text out of a box; promote it to an h3 subsection and split it into a table, highlights, or a figure.
+  for (const m of body.matchAll(/<div class="card[ "][^>]*>\s*<h4>([\s\S]*?)<\/h4>\s*<div class="card-body">([\s\S]*?)<\/div>\s*<\/div>/g)) {
+    const chars = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, '').length;
+    if (chars > 120) warn.push(`card "${m[1].replace(/<[^>]+>/g, '').trim()}" holds ${chars} characters; keep a card to two sentences and move the rest into an h3 subsection with a table, highlights, or a figure`);
   }
   // List items that open with a bold label and a colon read as a filled-in template.
   const labelled = body.match(/<li\b[^>]*>\s*<(b|strong)\b[^>]*>[^<]{1,30}[：:]\s*<\/\1>/gi) ?? [];

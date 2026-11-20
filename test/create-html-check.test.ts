@@ -64,6 +64,19 @@ test('warns when half or more of the sections have no figure', () => {
   assert.ok(checkHtml(html).warn.some((line: string) => line.includes('have no figure')));
 });
 
+test('warns when figures repeat the same shape', () => {
+  const pair = (a: string) => `<section><h2>${a}</h2><figure><svg viewBox="0 0 10 10"><rect x="1"/><text>${a}</text><rect x="5"/><text>${a}2</text></svg></figure></section>`;
+  const html = filled.replace('<footer>', pair('One') + pair('Two') + '<footer>');
+  assert.ok(checkHtml(html).warn.some((line: string) => line.includes('share the same shape')));
+  assert.ok(!checkHtml(filled).warn.some((line: string) => line.includes('share the same shape')));
+});
+
+test('does not count desktop and phone drawings of one figure as repeats', () => {
+  const svg = (a: string) => `<svg viewBox="0 0 10 10"><rect x="1"/><text>${a}</text><rect x="5"/><text>${a}2</text></svg>`;
+  const html = filled.replace('<footer>', `<section><h2>Both widths</h2><figure>${svg('Desktop')}${svg('Phone')}</figure></section><footer>`);
+  assert.ok(!checkHtml(html).warn.some((line: string) => line.includes('share the same shape')));
+});
+
 test('warns when a section has a figure but almost no prose', () => {
   const figureOnly = '<section id="f1"><h2>Figure only</h2><figure><svg viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg></figure></section>';
   const html = filled.replace('<footer>', figureOnly + '<footer>');
@@ -190,4 +203,12 @@ test('warns about a v2 figure with no deep fill, and the definitions block is no
   const onlyDefs = page('<svg class="brief-defs"><defs></defs></svg><p>本文</p>');
   assert.ok(checkHtml(onlyDefs).ng.some((line: string) => /no figure/.test(line)));
   assert.ok(!checkHtml(briefSkeleton({ title: 't' })).warn.some((line: string) => /no deep fill/.test(line)));
+});
+
+test('a card stuffed with prose is flagged, a short card is not', () => {
+  const card = (s: string) => `<div class="card"><h4>題</h4><div class="card-body"><p>${s}</p></div></div>`;
+  const stuffed = filled.replace('</section>', `${card('あ'.repeat(121))}</section>`);
+  assert.ok(checkHtml(stuffed).warn.some((line: string) => /holds 121 characters/.test(line)));
+  const short = filled.replace('</section>', `${card('短い説明です。')}</section>`);
+  assert.ok(!checkHtml(short).warn.some((line: string) => /holds \d+ characters/.test(line)));
 });
