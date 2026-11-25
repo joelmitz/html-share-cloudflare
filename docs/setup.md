@@ -1,6 +1,6 @@
 # 初回セットアップ
 
-HTML共有くん（Cloudflare版）は、自分のCloudflareアカウントへ構築して使います。セットアップ後の日常操作は、Claude Codeへ日本語で依頼できます。
+HTML共有くん（Cloudflare版）は、自分のCloudflareアカウントに構築して使います。セットアップ後の日常操作は、Claude Codeに日本語で依頼できます。
 
 ## 必要なもの
 
@@ -23,7 +23,7 @@ npm link
 cp html-share.config.example.yaml html-share.config.yaml
 ```
 
-`html-share.config.yaml` のサンプル値を、自分のCloudflare環境とドメインへ置き換えてください。`content.roots` には、共有を許可するディレクトリだけを列挙します。
+`html-share.config.yaml` のサンプル値を、自分のCloudflare環境とドメインに置き換えてください。`content.roots` には、共有を許可するディレクトリだけを列挙します。
 
 ## R2バケットとD1データベースの作成
 
@@ -99,7 +99,7 @@ html-share publish
 
 ## スキルの追加
 
-同梱の `create-html` は、メモや調査結果を読みやすいHTMLに整えます。`mobile` は、PC作業の確認依頼をスマホへ送ります。`inbox` は、スマホから置いた依頼をPCで引き取ります。
+メモや調査結果を読みやすいHTMLに整える `create-html` を同梱しています。ほかに、PC作業の確認依頼をスマホに送る `mobile` と、スマホから置いた依頼をPCで引き取る `inbox` もあります。
 
 ```bash
 mkdir -p ~/.claude/skills
@@ -108,10 +108,10 @@ ln -s "$(pwd)/skills/mobile" ~/.claude/skills/mobile
 ln -s "$(pwd)/skills/inbox" ~/.claude/skills/inbox
 ```
 
-複数のプロジェクトで使う場合は、設定を `~/.config/html-share/config.yaml` へ置くか、`HTML_SHARE_CONFIG` で場所を指定します。
+複数のプロジェクトで使う場合は、設定を `~/.config/html-share/config.yaml` に置くか、`HTML_SHARE_CONFIG` で場所を指定します。
 
 ## 動作確認
 
-Claude Codeへ「このHTMLを共有くんに追加して」と依頼し、本人専用の一覧にページが表示されれば完了です。
+Claude Codeに「このHTMLを共有くんに追加して」と依頼し、本人専用の一覧にページが表示されれば完了です。
 
 開発者向けの検証コマンドは [CONTRIBUTING.md](../CONTRIBUTING.md) を参照してください。
